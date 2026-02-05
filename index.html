@@ -237,6 +237,10 @@ body.neon .frameSvg{
   font-size:11px;
   text-align:center;
 }
+
+#ui select{background:#000;color:#fff;border:1px solid rgba(255,255,255,.18);padding:4px 8px;border-radius:8px;font-size:11px;max-width:240px}
+#ui select:focus{outline:none;border-color:color-mix(in srgb, var(--accent) 55%, rgba(255,255,255,.18))}
+#ui button.icon{padding:6px 8px;min-width:32px}
 #ui input[type="number"]:focus{
   outline:none;
   border-color: color-mix(in srgb, var(--accent) 55%, rgba(255,255,255,.18));
@@ -424,6 +428,8 @@ body.neon .frameSvg{
 
     <button data-act="camOn" id="camOnBtn">📷 Ativar</button>
     <button data-act="camOff" id="camOffBtn" disabled>❌ Parar</button>
+    <select id="camSelect" title="Escolher câmera"></select>
+    <button id="camRefreshBtn" class="icon" type="button" title="Atualizar lista">↻</button>
     <span id="camStatus"></span>
 
     <div class="sep"></div>
@@ -528,6 +534,8 @@ body.neon .frameSvg{
     camStatus: document.getElementById("camStatus"),
     camOnBtn: document.getElementById("camOnBtn"),
     camOffBtn: document.getElementById("camOffBtn"),
+    camSelect: document.getElementById("camSelect"),
+    camRefreshBtn: document.getElementById("camRefreshBtn"),
   };
 
   const clamp = function(v, min, max) { return Math.max(min, Math.min(max, v)); };
@@ -676,9 +684,14 @@ body.neon .frameSvg{
     Matter.World.add(this.engine.world, this.walls);
   };
 
-  PhysicsEngine.prototype.update = function() { 
+  PhysicsEngine.prototype.update = function() {
     if (!state.isFrozen) {
-      Matter.Engine.update(this.engine, 16);
+      if (!this._lastT) this._lastT = now();
+      const t = now();
+      const dt = clamp(t - this._lastT, 8, 33);
+      this._lastT = t;
+      state.dt = dt;
+      Matter.Engine.update(this.engine, dt);
     }
   };
 
@@ -945,7 +958,14 @@ body.neon .frameSvg{
     this.faceVideos = Array.from(document.querySelectorAll(".camVideo"));
   };
 
-  CameraManager.prototype.start = function() {
+  CameraManager.prototype.listCameras = function() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return Promise.resolve([]);
+    return navigator.mediaDevices.enumerateDevices().then(function(devs) {
+      return devs.filter(function(d) { return d.kind === "videoinput"; });
+    });
+  };
+
+  CameraManager.prototype.start = function(deviceIdExact) {
     var self = this;
     if (this.stream) {
       setStatus("Câmera já ativa", "info");
@@ -965,10 +985,12 @@ body.neon .frameSvg{
       video: {
         width: { ideal: 1280 },
         height: { ideal: 720 },
-        frameRate: { ideal: 30 }
+        frameRate: { ideal: 30 },
+        deviceId: deviceIdExact ? { exact: deviceIdExact } : undefined
       },
       audio: false
     };
+    if (!constraints.video.deviceId) delete constraints.video.deviceId;
 
     return navigator.mediaDevices.getUserMedia(constraints)
       .then(function(stream) {
@@ -1110,6 +1132,37 @@ body.neon .frameSvg{
     this.cam = new CameraManager();
     this.bridge = new StreamerBotBridge(this);
 
+    // Camera picker (ex.: OBS Virtual Camera)
+    this.refreshCameras = function() {
+      if (!el.camSelect) return Promise.resolve(false);
+      return self.cam.listCameras().then(function(cams) {
+        var current = el.camSelect.value;
+        el.camSelect.innerHTML = '';
+
+        if (!cams.length) {
+          var opt = document.createElement('option');
+          opt.value = '';
+          opt.textContent = 'Nenhuma câmera encontrada';
+          el.camSelect.appendChild(opt);
+          return false;
+        }
+
+        cams.forEach(function(d, i) {
+          var opt = document.createElement('option');
+          opt.value = d.deviceId;
+          opt.textContent = d.label || ('Câmera ' + (i + 1));
+          el.camSelect.appendChild(opt);
+        });
+
+        if (current) el.camSelect.value = current;
+        return true;
+      });
+    };
+
+    if (el.camRefreshBtn) el.camRefreshBtn.addEventListener('click', function() { self.refreshCameras(); });
+    setTimeout(function() { self.refreshCameras(); }, 0);
+
+
     this.bindUI();
     this.bindRotation();
     this.bindResize();
@@ -1118,7 +1171,7 @@ body.neon .frameSvg{
     window.cubeApi = {
       triggerEvent: function(key) { self.triggerEvent(key); },
       reset: function() { self.reset(); },
-      camOn: function() { return self.cam.start(); },
+      camOn: function() { return self.cam.start(el.camSelect ? (el.camSelect.value || null) : null); },
       camOff: function() { self.cam.stop(); },
     };
   };
