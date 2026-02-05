@@ -237,10 +237,6 @@ body.neon .frameSvg{
   font-size:11px;
   text-align:center;
 }
-
-#ui select{background:#000;color:#fff;border:1px solid rgba(255,255,255,.18);padding:4px 8px;border-radius:8px;font-size:11px;max-width:240px}
-#ui select:focus{outline:none;border-color:color-mix(in srgb, var(--accent) 55%, rgba(255,255,255,.18))}
-#ui button.icon{padding:6px 8px;min-width:32px}
 #ui input[type="number"]:focus{
   outline:none;
   border-color: color-mix(in srgb, var(--accent) 55%, rgba(255,255,255,.18));
@@ -428,8 +424,8 @@ body.neon .frameSvg{
 
     <button data-act="camOn" id="camOnBtn">📷 Ativar</button>
     <button data-act="camOff" id="camOffBtn" disabled>❌ Parar</button>
-    <select id="camSelect" title="Escolher câmera"></select>
-    <button id="camRefreshBtn" class="icon" type="button" title="Atualizar lista">↻</button>
+      <select id="camSelect" title="Escolher câmera"></select>
+      <button id="camRefreshBtn" class="icon" type="button" title="Atualizar lista">↻</button>
     <span id="camStatus"></span>
 
     <div class="sep"></div>
@@ -451,11 +447,11 @@ body.neon .frameSvg{
   const CONFIG = {
     size: 160,
     physics: {
-      gravity: 2.5,
+      gravity: 1.2,
       restitution: 0.40,
       friction: 0.7,
       density: 0.006,
-      bounceForceY: 1.0,
+      bounceForceY: 0.65,
       bounceForceXMin: 0.25,
       bounceForceXMax: 0.55,
       dropVelocity: 0.2,
@@ -486,8 +482,6 @@ body.neon .frameSvg{
       durMs: 560,
       segRatio: 0.14,
     },
-
-    streamerbot: { defaultWs: "ws://127.0.0.1:8080/" },
 
     spin3d: {
       damping: 0.96,
@@ -534,8 +528,6 @@ body.neon .frameSvg{
     camStatus: document.getElementById("camStatus"),
     camOnBtn: document.getElementById("camOnBtn"),
     camOffBtn: document.getElementById("camOffBtn"),
-    camSelect: document.getElementById("camSelect"),
-    camRefreshBtn: document.getElementById("camRefreshBtn"),
   };
 
   const clamp = function(v, min, max) { return Math.max(min, Math.min(max, v)); };
@@ -549,11 +541,6 @@ body.neon .frameSvg{
     } else if (type === "info") {
       el.camStatus.classList.add("info");
     }
-  }
-
-  function getWsUrlFromQuery() {
-    const qs = new URLSearchParams(location.search);
-    return qs.get("ws") || CONFIG.streamerbot.defaultWs;
   }
 
   function uiSyncRotation() {
@@ -684,16 +671,16 @@ body.neon .frameSvg{
     Matter.World.add(this.engine.world, this.walls);
   };
 
-  PhysicsEngine.prototype.update = function() {
-    if (!state.isFrozen) {
-      if (!this._lastT) this._lastT = now();
-      const t = now();
-      const dt = clamp(t - this._lastT, 8, 33);
-      this._lastT = t;
-      state.dt = dt;
-      Matter.Engine.update(this.engine, dt);
-    }
-  };
+PhysicsEngine.prototype.update = function() {
+  if (!state.isFrozen) {
+    if (!this._lastT) this._lastT = now();
+    const t = now();
+    const dt = clamp(t - this._lastT, 8, 33);
+    this._lastT = t;
+    Matter.Engine.update(this.engine, dt);
+  }
+}
+
 
   PhysicsEngine.prototype.freeze = function() {
     Matter.Body.setStatic(this.cubeBody, true);
@@ -958,13 +945,6 @@ body.neon .frameSvg{
     this.faceVideos = Array.from(document.querySelectorAll(".camVideo"));
   };
 
-  CameraManager.prototype.listCameras = function() {
-    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return Promise.resolve([]);
-    return navigator.mediaDevices.enumerateDevices().then(function(devs) {
-      return devs.filter(function(d) { return d.kind === "videoinput"; });
-    });
-  };
-
   CameraManager.prototype.start = function(deviceIdExact) {
     var self = this;
     if (this.stream) {
@@ -982,15 +962,15 @@ body.neon .frameSvg{
     }
 
     var constraints = {
-      video: {
-        width: { ideal: 1280 },
-        height: { ideal: 720 },
-        frameRate: { ideal: 30 },
-        deviceId: deviceIdExact ? { exact: deviceIdExact } : undefined
-      },
-      audio: false
-    };
-    if (!constraints.video.deviceId) delete constraints.video.deviceId;
+    video: {
+      width: { ideal: 1280 },
+      height: { ideal: 720 },
+      frameRate: { ideal: 30 },
+      deviceId: deviceIdExact ? { exact: deviceIdExact } : undefined
+    },
+    audio: false
+  };
+  if (!constraints.video.deviceId) delete constraints.video.deviceId;
 
     return navigator.mediaDevices.getUserMedia(constraints)
       .then(function(stream) {
@@ -1051,95 +1031,7 @@ body.neon .frameSvg{
     console.log("[Camera] Desconectada");
   };
 
-  var StreamerBotBridge = function(controller) {
-    this.controller = controller;
-    this.ws = null;
-    this.connect();
-  };
-
-  StreamerBotBridge.prototype.connect = function() {
-    var self = this;
-    const url = getWsUrlFromQuery();
-    try {
-      this.ws = new WebSocket(url);
-      this.ws.addEventListener("open", function () {
-  console.log("[Overlay] CONECTADO AO STREAMER.BOT:", url);
-  setStatus("✅ Bot Conectado", "info");
-
-  // Para receber eventos, você precisa se inscrever (Subscribe)
-  // (Streamer.bot: eventos NÃO são enviados sem Subscribe)
-  const sub = {
-    request: "Subscribe",
-    id: "cubo-sub",
-    events: {
-      General: ["Custom"]
-    }
-  };
-
-  try {
-    self.ws.send(JSON.stringify(sub));
-    console.log("[Overlay] Subscribe enviado:", sub);
-  } catch (e) {
-    console.warn("[Overlay] Falha ao enviar Subscribe", e);
-  }
-});
-
-      this.ws.addEventListener("message", function(ev) { 
-        console.log("[Overlay] Mensagem recebida:", ev.data);
-        self.onMessage(ev.data); 
-      });
-      this.ws.addEventListener("close", function() {
-        console.warn("[Overlay] Conexão com Bot perdida.");
-        setStatus("❌ Bot Desconectado", "error");
-        setTimeout(function() { self.connect(); }, 2000);
-      });
-    } catch (e) {
-      console.warn("[Overlay] Erro ao iniciar WS:", e);
-    }
-  };
-
-  StreamerBotBridge.prototype.onMessage = function(raw) {
-    // 1. Mostra na tela o que chegou (Debug Visual)
-    el.camStatus.textContent = "REC: " + raw.substring(0, 50) + "...";
-    el.camStatus.className = "info";
-
-    var msg;
-    try { msg = JSON.parse(raw); } catch (e) { return; }
-    if (!msg || typeof msg !== "object") return;
-
-    // --- CORREÇÃO DE FORMATO (O "Pulo do Gato") ---
-    // Se a mensagem vier embrulhada dentro de "data" ou "payload", nós desembrulhamos
-    if (msg.data && typeof msg.data === 'object') msg = msg.data;
-    if (msg.payload && typeof msg.payload === 'object') msg = msg.payload;
-    if (typeof msg === 'string') { try { msg = JSON.parse(msg); } catch(e){} }
-    // ------------------------------------------------
-
-    console.log("[Overlay] Comando Processado:", msg);
-
-    // Lógica original de ativação
-    if (msg.type === "event" || msg.event === "event") { // Aceita variações
-        const key = msg.key || msg.action; // Aceita 'key' ou 'action'
-        
-        if (key === "drop") {
-            this.controller.seedSpinFromSliders(CONFIG.spin3d.dropKick);
-            this.controller.physics.drop();
-        } else if (key === "bounce") {
-            if (!state.isFrozen) {
-                const vec = randomVariedVec3();
-                const norm = Math.hypot(vec[0], vec[1], vec[2]) || 1;
-                const kick = CONFIG.spin3d.bounceKick;
-                state.spin.w[0] += (vec[0]/norm) * kick;
-                state.spin.w[1] += (vec[1]/norm) * kick;
-                state.spin.w[2] += (vec[2]/norm) * kick;
-            }
-            this.controller.physics.bounce();
-        } else {
-            this.controller.triggerEvent(String(key));
-        }
-    } else if (msg.type === "reset") {
-        this.controller.reset();
-    }
-  };
+  // Streamer.bot bridge removido (modo hotkeys)
 
   var CubeController = function() {
     this.visual = new VisualManager();
@@ -1148,40 +1040,38 @@ body.neon .frameSvg{
     this.physics = new PhysicsEngine(function(ev) { self.onCollision(ev); });
     this.drag = new DragController(this.physics);
     this.cam = new CameraManager();
-    this.bridge = new StreamerBotBridge(this);
+    // this.bridge removido
 
-    // Camera picker (ex.: OBS Virtual Camera)
-    this.refreshCameras = function() {
-      if (!el.camSelect) return Promise.resolve(false);
-      return self.cam.listCameras().then(function(cams) {
-        var current = el.camSelect.value;
-        el.camSelect.innerHTML = '';
-
-        if (!cams.length) {
-          var opt = document.createElement('option');
-          opt.value = '';
-          opt.textContent = 'Nenhuma câmera encontrada';
-          el.camSelect.appendChild(opt);
-          return false;
-        }
-
-        cams.forEach(function(d, i) {
-          var opt = document.createElement('option');
-          opt.value = d.deviceId;
-          opt.textContent = d.label || ('Câmera ' + (i + 1));
-          el.camSelect.appendChild(opt);
-        });
-
-        if (current) el.camSelect.value = current;
-        return true;
+  // Camera picker (listar e escolher dispositivo, ex.: OBS Virtual Camera)
+  window.__cubeController = this;
+  this.refreshCameras = function() {
+    if (!el.camSelect) return Promise.resolve(false);
+    return self.cam.listCameras().then(function(cams) {
+      var current = el.camSelect.value;
+      el.camSelect.innerHTML = '';
+      if (!cams.length) {
+        var opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = 'Nenhuma câmera encontrada';
+        el.camSelect.appendChild(opt);
+        return false;
+      }
+      cams.forEach(function(d, i) {
+        var opt = document.createElement('option');
+        opt.value = d.deviceId;
+        opt.textContent = d.label || ('Câmera ' + (i + 1));
+        el.camSelect.appendChild(opt);
       });
-    };
-
-    if (el.camRefreshBtn) el.camRefreshBtn.addEventListener('click', function() { self.refreshCameras(); });
-    setTimeout(function() { self.refreshCameras(); }, 0);
+      if (current) el.camSelect.value = current;
+      return true;
+    });
+  };
+  if (el.camRefreshBtn) el.camRefreshBtn.addEventListener('click', function() { self.refreshCameras(); });
+  setTimeout(function() { self.refreshCameras(); }, 0);
 
 
     this.bindUI();
+    this.bindHotkeys();
     this.bindRotation();
     this.bindResize();
     this.startLoop();
@@ -1189,7 +1079,7 @@ body.neon .frameSvg{
     window.cubeApi = {
       triggerEvent: function(key) { self.triggerEvent(key); },
       reset: function() { self.reset(); },
-      camOn: function() { return self.cam.start(el.camSelect ? (el.camSelect.value || null) : null); },
+      camOn: function() { return self.cam.start(); },
       camOff: function() { self.cam.stop(); },
     };
   };
@@ -1252,9 +1142,11 @@ body.neon .frameSvg{
       return;
     }
 
-    sp.w[0] *= CONFIG.spin3d.damping;
-    sp.w[1] *= CONFIG.spin3d.damping;
-    sp.w[2] *= CONFIG.spin3d.damping;
+    const _dt = (state.dt || 16);
+    const _damp = Math.pow(CONFIG.spin3d.damping, _dt / 16);
+    sp.w[0] *= _damp;
+    sp.w[1] *= _damp;
+    sp.w[2] *= _damp;
 
     sp.w[0] = clamp(sp.w[0], -CONFIG.spin3d.maxW, CONFIG.spin3d.maxW);
     sp.w[1] = clamp(sp.w[1], -CONFIG.spin3d.maxW, CONFIG.spin3d.maxW);
@@ -1323,6 +1215,60 @@ body.neon .frameSvg{
       }
     });
   };
+
+  CubeController.prototype.bindHotkeys = function() {
+    var self = this;
+
+    // Shift + digits mapping (e.code):
+    // Shift+1 Drop, Shift+2 Bounce, Shift+3 Reset
+    // Shift+4 Twitch Sub, Shift+5 Twitch GiftSub, Shift+6 Twitch Bits
+    // Shift+7 Donate
+    // Shift+9 YouTube Member, Shift+0 YouTube SuperChat
+
+    var shiftMap = {
+      'Digit1': function() {
+        self.seedSpinFromSliders(CONFIG.spin3d.dropKick);
+        self.physics.drop();
+      },
+      'Digit2': function() {
+        if (!state.isFrozen) {
+          const vec = randomVariedVec3();
+          const ax = vec[0], ay = vec[1], az = vec[2];
+          const norm = Math.hypot(ax, ay, az) || 1;
+          const kick = CONFIG.spin3d.bounceKick;
+          state.spin.w[0] = clamp(ax / norm * kick, -CONFIG.spin3d.maxW, CONFIG.spin3d.maxW);
+          state.spin.w[1] = clamp(ay / norm * kick, -CONFIG.spin3d.maxW, CONFIG.spin3d.maxW);
+          state.spin.w[2] = clamp(az / norm * kick, -CONFIG.spin3d.maxW, CONFIG.spin3d.maxW);
+        }
+        self.physics.bounce();
+      },
+      'Digit3': function() { self.reset(); },
+
+      'Digit4': function() { self.triggerEvent('twitch.sub'); },
+      'Digit5': function() { self.triggerEvent('twitch.giftsub'); },
+      'Digit6': function() { self.triggerEvent('twitch.bits'); },
+      'Digit7': function() { self.triggerEvent('twitch.donate'); },
+
+      'Digit9': function() { self.triggerEvent('youtube.member'); },
+      'Digit0': function() { self.triggerEvent('youtube.superchat'); }
+    };
+
+    window.addEventListener('keydown', function(e) {
+      if (e.repeat) return;
+      if (!e.shiftKey) return;
+
+      var t = e.target;
+      var tag = t && t.tagName ? t.tagName.toLowerCase() : '';
+      if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+
+      var fn = shiftMap[e.code];
+      if (!fn) return;
+
+      e.preventDefault();
+      try { fn(); } catch (err) { console.warn('[Hotkeys] erro:', err); }
+    });
+  };
+
 
   CubeController.prototype.bindRotation = function() {
     function onInput(axis, valueEl) {
