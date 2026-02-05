@@ -242,7 +242,11 @@ body.neon .frameSvg{
   border-color: color-mix(in srgb, var(--accent) 55%, rgba(255,255,255,.18));
 }
 
-#ui input[type="range"]{
+#
+ui select{background:#000;color:#fff;border:1px solid rgba(255,255,255,.18);padding:4px 8px;border-radius:8px;font-size:11px;max-width:220px}
+ui select:focus{outline:none;border-color:color-mix(in srgb, var(--accent) 55%, rgba(255,255,255,.18))}
+ui button.icon{padding:6px 8px;min-width:32px}
+ui input[type="range"]{
   width:80px;
   height:4px;
   background: rgba(255,255,255,.18);
@@ -424,8 +428,8 @@ body.neon .frameSvg{
 
     <button data-act="camOn" id="camOnBtn">📷 Ativar</button>
     <button data-act="camOff" id="camOffBtn" disabled>❌ Parar</button>
-      <select id="camSelect" title="Escolher câmera"></select>
-      <button id="camRefreshBtn" class="icon" type="button" title="Atualizar lista">↻</button>
+      <select id=\"camSelect\" title=\"Escolher câmera\"></select>
+      <button id=\"camRefreshBtn\" class=\"icon\" type=\"button\" title=\"Atualizar lista\">↻</button>
     <span id="camStatus"></span>
 
     <div class="sep"></div>
@@ -529,9 +533,7 @@ body.neon .frameSvg{
     camSource: document.getElementById("camSource"),
     camStatus: document.getElementById("camStatus"),
     camOnBtn: document.getElementById("camOnBtn"),
-    camOffBtn: document.getElementById("camOffBtn"),,
-    camSelect: document.getElementById("camSelect"),
-    camRefreshBtn: document.getElementById("camRefreshBtn"),
+    camOffBtn: document.getElementById("camOffBtn"),
   };
 
   const clamp = function(v, min, max) { return Math.max(min, Math.min(max, v)); };
@@ -680,17 +682,11 @@ body.neon .frameSvg{
     Matter.World.add(this.engine.world, this.walls);
   };
 
-PhysicsEngine.prototype.update = function() {
-  if (!state.isFrozen) {
-    if (!this._lastT) this._lastT = now();
-    const t = now();
-    const dt = clamp(t - this._lastT, 8, 33);
-    this._lastT = t;
-    state.dt = dt;
-    Matter.Engine.update(this.engine, dt);
-  }
-}
-
+  PhysicsEngine.prototype.update = function() { 
+    if (!state.isFrozen) {
+      Matter.Engine.update(this.engine, 16);
+    }
+  };
 
   PhysicsEngine.prototype.freeze = function() {
     Matter.Body.setStatic(this.cubeBody, true);
@@ -955,14 +951,6 @@ PhysicsEngine.prototype.update = function() {
     this.faceVideos = Array.from(document.querySelectorAll(".camVideo"));
   };
 
-CameraManager.prototype.listCameras = function() {
-  if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return Promise.resolve([]);
-  return navigator.mediaDevices.enumerateDevices().then(function(devs) {
-    return devs.filter(function(d) { return d.kind === 'videoinput'; });
-  });
-};
-
-
   CameraManager.prototype.start = function(deviceIdExact) {
     var self = this;
     if (this.stream) {
@@ -988,7 +976,6 @@ CameraManager.prototype.listCameras = function() {
     },
     audio: false
   };
-  if (!constraints.video.deviceId) delete constraints.video.deviceId;
   if (!constraints.video.deviceId) delete constraints.video.deviceId;
 
     return navigator.mediaDevices.getUserMedia(constraints)
@@ -1101,7 +1088,6 @@ CameraManager.prototype.listCameras = function() {
     // --- LÓGICA DE COMANDOS (compatível com Streamer.bot) ---
     // Aceita formatos simples vindos de CPH.WebsocketBroadcastJson, por exemplo:
     // {"key":"drop"}  |  {"cmd":"drop"}  |  {"action":"drop"}
-    // e também mantém compatibilidade com {"type":"event","key":"twitch.sub"}.
 
     const type = (msg.type != null ? String(msg.type) : '').trim();
     const key = (msg.key ?? msg.cmd ?? msg.action ?? msg.eventKey ?? msg.name);
@@ -1159,7 +1145,7 @@ var CubeController = function() {
     this.cam = new CameraManager();
     this.bridge = new StreamerBotBridge(this);
 
-  // Camera picker (listar e escolher dispositivo, ex.: OBS Virtual Camera)
+  // Camera picker (para escolher OBS Virtual Camera / outras)
   window.__cubeController = this;
   this.refreshCameras = function() {
     if (!el.camSelect) return Promise.resolve(false);
@@ -1258,11 +1244,11 @@ var CubeController = function() {
       return;
     }
 
-    const _dt = (state.dt || 16);
-    const _damp = Math.pow(CONFIG.spin3d.damping, _dt / 16);
-    sp.w[0] *= _damp;
-    sp.w[1] *= _damp;
-    sp.w[2] *= _damp;
+    const dt = (state.dt || 16);
+    const damp = Math.pow(CONFIG.spin3d.damping, dt / 16);
+    sp.w[0] *= damp;
+    sp.w[1] *= damp;
+    sp.w[2] *= damp;
 
     sp.w[0] = clamp(sp.w[0], -CONFIG.spin3d.maxW, CONFIG.spin3d.maxW);
     sp.w[1] = clamp(sp.w[1], -CONFIG.spin3d.maxW, CONFIG.spin3d.maxW);
@@ -1322,7 +1308,7 @@ var CubeController = function() {
           break;
 
         case "camOn":
-          self.cam.start(el.camSelect ? (el.camSelect.value || null) : null);
+          self.cam.start();
           break;
 
         case "camOff":
