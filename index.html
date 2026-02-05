@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Cubo 3D Webcam (OBS + Streamer.bot)</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+  <style>
+    :root{
+      --size: 180px;
+      --accent: #2ea7ff;
+      --bgFace: rgba(10,12,18,.55);
+      --inset: 8px;
+      --border: 1px solid rgba(255,255,255,.08);
+    }
+    html,body{margin:0;height:100%;background:transparent;overflow:hidden;}
+    #stage{position:relative;width:100vw;height:100vh;perspective:1200px;transform:translateZ(0);}
+    #rig{position:absolute;left:0;top:0;transform-style:preserve-3d;will-change:transform;}
+    #cube{
+      width:var(--size);height:var(--size);
+      position:relative;transform-style:preserve-3d;will-change:transform;
+      pointer-events:none;
+    }
+    .face{
+      position:absolute;inset:0;
+      background:var(--bgFace);
+      border:var(--border);
+      backface-visibility:visible;
+      transform-style:preserve-3d;
+    }
+    .content{position:absolute;inset:var(--inset);overflow:hidden;border-radius:10px;}
+    video.faceCam{width:100%;height:100%;object-fit:cover;display:block;}
+    .frame{
+      position:absolute;inset:0;border-radius:14px;
+      box-shadow:0 0 0 1px rgba(255,255,255,.10) inset, 0 0 22px rgba(46,167,255,.18);
+      pointer-events:none;
+    }
+
+    .front { transform: rotateY(  0deg) translateZ(calc(var(--size)/2)); }
+    .back  { transform: rotateY(180deg) translateZ(calc(var(--size)/2)); }
+    .right { transform: rotateY( 90deg) translateZ(calc(var(--size)/2)); }
+    .left  { transform: rotateY(-90deg) translateZ(calc(var(--size)/2)); }
+    .top   { transform: rotateX( 90deg) translateZ(calc(var(--size)/2)); }
+    .bottom{ transform: rotateX(-90deg) translateZ(calc(var(--size)/2)); }
+
+    #hud{
+      position:fixed;left:10px;top:10px;z-index:9999;
+      font:12px ui-sans-serif,system-ui;
+      color:#fff;background:rgba(0,0,0,.45);
+      padding:8px 10px;border-radius:10px;border:1px solid rgba(255,255,255,.12);
+      user-select:none;
+    }
+    #hud small{opacity:.85}
+    #btns{margin-top:6px;display:flex;gap:6px;flex-wrap:wrap}
+    button{
+      background:rgba(255,255,255,.10);color:#fff;border:1px solid rgba(255,255,255,.18);
+      padding:6px 8px;border-radius:10px;cursor:pointer;font-weight:700;font-size:11px;
+    }
+  </style>
+</head>
+<body>
+  <div id="stage">
+    <div id="rig">
+      <div id="cube">
+        <div class="face front"><div class="content"><video class="faceCam" autoplay playsinline muted></video></div><div class="frame"></div></div>
+        <div class="face back"><div class="content"><video class="faceCam" autoplay playsinline muted></video></div><div class="frame"></div></div>
+        <div class="face right"><div class="content"><video class="faceCam" autoplay playsinline muted></video></div><div class="frame"></div></div>
+        <div class="face left"><div class="content"><video class="faceCam" autoplay playsinline muted></video></div><div class="frame"></div></div>
+        <div class="face top"><div class="content"><video class="faceCam" autoplay playsinline muted></video></div><div class="frame"></div></div>
+        <div class="face bottom"><div class="content"><video class="faceCam" autoplay playsinline muted></video></div><div class="frame"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="hud">
+    <div><b>Cubo</b> <small id="st">boot</small></div>
+    <div><small>WS:</small> <small id="wsSt">offline</small></div>
+    <div><small>Tip:</small> <small>adicione ?ws=ws://127.0.0.1:8080 se quiser</small></div>
+    <div id="btns">
+      <button id="cam">Cam</button>
+      <button id="drop">Drop</button>
+      <button id="bounce">Bounce</button>
+      <button id="reset">Reset</button>
+    </div>
+  </div>
+
+<script>
+(() => {
+  'use strict';
+
+  const WS_DEFAULT = 'ws://127.0.0.1:8080';
+  const qs = new URLSearchParams(location.search);
+  const WS_URL = qs.get('ws') || WS_DEFAULT;
+
+  const el = {
+    rig: document.getElementById('rig'),
+    st: document.getElementById('st'),
+    wsSt: document.getElementById('wsSt'),
+    cams: Array.from(document.querySelectorAll('video.faceCam')),
+    camBtn: document.getElementById('cam'),
+    dropBtn: document.getElementById('drop'),
+    bounceBtn: document.getElementById('bounce'),
+    resetBtn: document.getElementById('reset'),
+  };
+
+  const clamp = (v,min,max) => Math.max(min, Math.min(max, v));
+
+  // Quaternion utils
+  const qNorm = (q) => {
+    const n = Math.hypot(q[0],q[1],q[2],q[3]) || 1;
+    return [q[0]/n,q[1]/n,q[2]/n,q[3]/n];
+  };
+  const qMul = (a,b) => ([
+    a[0]*b[0] - a[1]*b[1] - a[2]*b[2] - a[3]*b[3],
+    a[0]*b[1] + a[1]*b[0] + a[2]*b[3] - a[3]*b[2],
+    a[0]*b[2] - a[1]*b[3] + a[2]*b[0] + a[3]*b[1],
+    a[0]*b[3] + a[1]*b[2] - a[2]*b[1] + a[3]*b[0],
+  ]);
+  const qFromAxisAngle = (ax,ay,az,ang) => {
+    const half = ang * 0.5, s = Math.sin(half);
+    const n = Math.hypot(ax,ay,az) || 1;
+    return [Math.cos(half), (ax/n)*s, (ay/n)*s, (az/n)*s];
+  };
+  const qToAxisAngle = (q) => {
+    const qq = qNorm(q);
+    let w = clamp(qq[0], -1, 1);
+    const ang = 2 * Math.acos(w);
+    const s = Math.sqrt(1 - w*w);
+    if (s < 1e-6 || !Number.isFinite(s)) return {ax:1,ay:0,az:0,ang:0};
+    return {ax: qq[1]/s, ay: qq[2]/s, az: qq[3]/s, ang};
+  };
+  const randUnit = () => {
+    const u = Math.random()*2 - 1;
+    const t = Math.random()*Math.PI*2;
+    const r = Math.sqrt(1-u*u);
+    return [r*Math.cos(t), u, r*Math.sin(t)];
+  };
+
+  // Matter
+  const Engine = Matter.Engine, World = Matter.World, Bodies = Matter.Bodies, Body = Matter.Body, Events = Matter.Events;
+  const engine = Engine.create();
+  engine.gravity.y = 1.15;
+
+  let size = 180;
+  let cubeBody = Bodies.rectangle(260, 200, size, size, { restitution: 0.35, friction: 0.75, density: 0.006, isStatic: true });
+  World.add(engine.world, cubeBody);
+
+  let walls = [];
+  function rebuildWalls(){
+    walls.forEach(w => World.remove(engine.world, w));
+    walls = [];
+    const t = 200, half = t/2;
+    const top = 80, side = 80, bottom = 60;
+    const W = innerWidth, H = innerHeight;
+
+    walls.push(
+      Bodies.rectangle(W/2, H - bottom + half, W + t, t, { isStatic:true }),
+      Bodies.rectangle(W/2, top - half,        W + t, t, { isStatic:true }),
+      Bodies.rectangle(side - half, H/2,       t, H + t, { isStatic:true }),
+      Bodies.rectangle(W - side + half, H/2,   t, H + t, { isStatic:true }),
+    );
+    World.add(engine.world, walls);
+  }
+  rebuildWalls();
+  addEventListener('resize', rebuildWalls);
+
+  // Spin
+  const spin = { q:[1,0,0,0], w:[0,0,0], damping:0.965, maxW:0.35, stopW:0.00035 };
+  function seedSpin(kick=0.08){
+    const v = randUnit();
+    const n = Math.hypot(v[0],v[1],v[2]) || 1;
+    spin.w[0] = clamp((v[0]/n)*kick, -spin.maxW, spin.maxW);
+    spin.w[1] = clamp((v[1]/n)*kick, -spin.maxW, spin.maxW);
+    spin.w[2] = clamp((v[2]/n)*kick, -spin.maxW, spin.maxW);
+  }
+  function updateSpin(){
+    const wmag = Math.hypot(spin.w[0],spin.w[1],spin.w[2]);
+    if (wmag < spin.stopW){ spin.w[0]=spin.w[1]=spin.w[2]=0; return; }
+
+    spin.w[0] *= spin.damping; spin.w[1] *= spin.damping; spin.w[2] *= spin.damping;
+    spin.w[0] = clamp(spin.w[0], -spin.maxW, spin.maxW);
+    spin.w[1] = clamp(spin.w[1], -spin.maxW, spin.maxW);
+    spin.w[2] = clamp(spin.w[2], -spin.maxW, spin.maxW);
+
+    const ang = Math.hypot(spin.w[0],spin.w[1],spin.w[2]);
+    if (ang > 1e-8){
+      const dq = qFromAxisAngle(spin.w[0], spin.w[1], spin.w[2], ang);
+      spin.q = qNorm(qMul(dq, spin.q));
+    }
+  }
+
+  let frozen = true;
+
+  function applyTransform(){
+    const p = cubeBody.position;
+    const half = size / 2;
+
+    let rotCSS = '';
+    if (frozen){
+      rotCSS = 'rotateX(78deg) rotateY(5deg) rotateZ(-41deg)';
+    } else {
+      const aa = qToAxisAngle(spin.q);
+      rotCSS = `rotate3d(${aa.ax},${aa.ay},${aa.az},${aa.ang}rad)`;
+    }
+    el.rig.style.transform = `translate3d(${p.x-half}px,${p.y-half}px,0) ${rotCSS}`;
+  }
+
+  function loop(){
+    if (!frozen){
+      Engine.update(engine, 16);
+      updateSpin();
+    }
+    applyTransform();
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+
+  function cmdDrop(){
+    frozen = false;
+    Body.setStatic(cubeBody, false);
+    Body.setVelocity(cubeBody, {x:0,y:0});
+    Body.setAngularVelocity(cubeBody, 0.18);
+    seedSpin(0.09);
+    el.st.textContent = 'drop';
+  }
+  function cmdBounce(){
+    if (frozen) return;
+    Body.applyForce(cubeBody, cubeBody.position, { x:(Math.random()>.5?1:-1)*0.03, y:-0.07 });
+    seedSpin(0.07);
+    el.st.textContent = 'bounce';
+  }
+  function cmdReset(){
+    frozen = true;
+    Body.setStatic(cubeBody, true);
+    Body.setPosition(cubeBody, {x:260,y:200});
+    Body.setVelocity(cubeBody, {x:0,y:0});
+    Body.setAngularVelocity(cubeBody, 0);
+    spin.q = [1,0,0,0];
+    spin.w = [0,0,0];
+    el.st.textContent = 'reset';
+  }
+
+  Events.on(engine, 'collisionStart', () => { if (!frozen) seedSpin(0.03); });
+
+  async function camOn(){
+    const constraints = { video: { width:{ideal:1280}, height:{ideal:720}, frameRate:{ideal:30} }, audio:false };
+    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+    el.cams.forEach(v => v.srcObject = stream);
+    el.st.textContent = 'cam on';
+  }
+
+  el.camBtn.onclick = () => camOn().catch(e => el.st.textContent = 'cam err');
+  el.dropBtn.onclick = cmdDrop;
+  el.bounceBtn.onclick = cmdBounce;
+  el.resetBtn.onclick = cmdReset;
+
+  // WS bridge (Streamer.bot)
+  let ws = null;
+  function connectWS(){
+    try{
+      ws = new WebSocket(WS_URL);
+      el.wsSt.textContent = 'connecting…';
+
+      ws.addEventListener('open', () => el.wsSt.textContent = 'online');
+      ws.addEventListener('close', () => { el.wsSt.textContent='offline'; setTimeout(connectWS, 1500); });
+
+      ws.addEventListener('message', (ev) => {
+        let msg = null;
+        try { msg = JSON.parse(ev.data); } catch { return; }
+
+        // accept: {cmd:"drop"} OR {key:"drop"} OR {data:{cmd:"drop"}}
+        const inner = (msg && msg.data && typeof msg.data === 'object') ? msg.data : null;
+        const finalCmd = (inner && (inner.cmd || inner.key || inner.action)) || (msg.cmd || msg.key || msg.action);
+        if (!finalCmd) return;
+
+        if (finalCmd === 'drop') cmdDrop();
+        else if (finalCmd === 'bounce') cmdBounce();
+        else if (finalCmd === 'reset') cmdReset();
+        else if (finalCmd === 'camOn') camOn();
+      });
+    } catch(e){
+      el.wsSt.textContent = 'ws error';
+      setTimeout(connectWS, 1500);
+    }
+  }
+  connectWS();
+
+  window.cubeApi = { drop:cmdDrop, bounce:cmdBounce, reset:cmdReset, camOn };
+})();
+</script>
+</body>
+</html>
