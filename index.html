@@ -1,292 +1,1372 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Cubo 3D Webcam (OBS + Streamer.bot)</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cubo 3D - Câmera Direta</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
   <style>
-    :root{
-      --size: 180px;
-      --accent: #2ea7ff;
-      --bgFace: rgba(10,12,18,.55);
-      --inset: 8px;
-      --border: 1px solid rgba(255,255,255,.08);
-    }
-    html,body{margin:0;height:100%;background:transparent;overflow:hidden;}
-    #stage{position:relative;width:100vw;height:100vh;perspective:1200px;transform:translateZ(0);}
-    #rig{position:absolute;left:0;top:0;transform-style:preserve-3d;will-change:transform;}
-    #cube{
-      width:var(--size);height:var(--size);
-      position:relative;transform-style:preserve-3d;will-change:transform;
-      pointer-events:none;
-    }
-    .face{
-      position:absolute;inset:0;
-      background:var(--bgFace);
-      border:var(--border);
-      backface-visibility:visible;
-      transform-style:preserve-3d;
-    }
-    .content{position:absolute;inset:var(--inset);overflow:hidden;border-radius:10px;}
-    video.faceCam{width:100%;height:100%;object-fit:cover;display:block;}
-    .frame{
-      position:absolute;inset:0;border-radius:14px;
-      box-shadow:0 0 0 1px rgba(255,255,255,.10) inset, 0 0 22px rgba(46,167,255,.18);
-      pointer-events:none;
-    }
+:root{
+  --size: 160px;
+  --accent: #2ea7ff;
+  --outer: 3.2px;
+  --inset: 6px;
+  --uiBg: rgba(10, 12, 18, 0.85);
+  --sweepDur: 560ms;
+  --sweepLoops: 3;
+}
 
-    .front { transform: rotateY(  0deg) translateZ(calc(var(--size)/2)); }
-    .back  { transform: rotateY(180deg) translateZ(calc(var(--size)/2)); }
-    .right { transform: rotateY( 90deg) translateZ(calc(var(--size)/2)); }
-    .left  { transform: rotateY(-90deg) translateZ(calc(var(--size)/2)); }
-    .top   { transform: rotateX( 90deg) translateZ(calc(var(--size)/2)); }
-    .bottom{ transform: rotateX(-90deg) translateZ(calc(var(--size)/2)); }
+*{ box-sizing:border-box; margin:0; padding:0; }
+body{
+  margin:0;
+  background:transparent;
+  overflow:hidden;
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
 
-    #hud{
-      position:fixed;left:10px;top:10px;z-index:9999;
-      font:12px ui-sans-serif,system-ui;
-      color:#fff;background:rgba(0,0,0,.45);
-      padding:8px 10px;border-radius:10px;border:1px solid rgba(255,255,255,.12);
-      user-select:none;
-    }
-    #hud small{opacity:.85}
-    #btns{margin-top:6px;display:flex;gap:6px;flex-wrap:wrap}
-    button{
-      background:rgba(255,255,255,.10);color:#fff;border:1px solid rgba(255,255,255,.18);
-      padding:6px 8px;border-radius:10px;cursor:pointer;font-weight:700;font-size:11px;
-    }
+#stage{
+  position:relative;
+  width:100vw;
+  height:100vh;
+  perspective:1200px;
+  overflow:hidden;
+  transform: translateZ(0);
+}
+
+#rig{
+  position:absolute;
+  left:0;
+  top:0;
+  transform-style:preserve-3d;
+  will-change:transform;
+  pointer-events:none;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  transform: translateZ(0);
+}
+
+#cube{
+  position:relative;
+  width:var(--size);
+  height:var(--size);
+  transform-style:preserve-3d;
+  transition:width .25s ease, height .25s ease;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  transform: translateZ(0);
+}
+#cube.draggable{ pointer-events:auto; cursor:grab; }
+#cube.dragging{ cursor:grabbing; }
+
+.face{
+  position:absolute;
+  width:var(--size);
+  height:var(--size);
+  backface-visibility:visible;
+  background: rgba(10, 12, 18, 0.55);
+  border: 1px solid rgba(255,255,255,0.06);
+  transition:width .25s ease, height .25s ease;
+  transform: translateZ(0);
+}
+
+.face-front  { transform: rotateY(0deg)   translateZ(calc(var(--size)/2)); }
+.face-back   { transform: rotateY(180deg) translateZ(calc(var(--size)/2)); }
+.face-right  { transform: rotateY(90deg)  translateZ(calc(var(--size)/2)); }
+.face-left   { transform: rotateY(-90deg) translateZ(calc(var(--size)/2)); }
+.face-top    { transform: rotateX(90deg)  translateZ(calc(var(--size)/2)); }
+.face-bottom { transform: rotateX(-90deg) translateZ(calc(var(--size)/2)); }
+
+.face-content{
+  position:relative;
+  width:100%;
+  height:100%;
+  overflow:hidden;
+}
+
+.camSlot{
+  position:absolute;
+  inset:var(--inset);
+  overflow:hidden;
+  z-index:1;
+  border-radius:7px;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.07);
+}
+
+.camMock, .camVideo{
+  width:100%;
+  height:100%;
+  object-fit:cover;
+  display:block;
+}
+.camVideo{
+  position:absolute;
+  inset:0;
+  opacity:0;
+}
+body.hasCam .camVideo{ opacity:1; }
+body.hasCam .camMock{ opacity:0; }
+
+.frameSvg{
+  position:absolute;
+  inset:0;
+  width:100%;
+  height:100%;
+  z-index:6;
+  pointer-events:none;
+  filter: drop-shadow(0 0 2px rgba(0,0,0,.35));
+  shape-rendering: geometricPrecision;
+  -webkit-transform: translateZ(0);
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  will-change: transform;
+}
+
+.frameSvg path{
+  fill:none;
+  vector-effect: non-scaling-stroke;
+  shape-rendering: geometricPrecision;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.baseOuter{
+  stroke: var(--accent);
+  stroke-width: var(--outer);
+  opacity: .92;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 0 1.8px color-mix(in srgb, var(--accent) 65%, transparent));
+  transition: stroke .12s linear, opacity .12s linear, filter .12s linear;
+  shape-rendering: geometricPrecision;
+}
+
+.sweepOuter{
+  stroke: rgba(255,255,255,.95);
+  stroke-width: calc(var(--outer) * 0.75);
+  opacity: 0;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 0 8px rgba(255,255,255,.28));
+  shape-rendering: geometricPrecision;
+}
+
+@keyframes sweepMove {
+  from { stroke-dashoffset: var(--dashFrom, 0); }
+  to   { stroke-dashoffset: var(--dashTo, -1000); }
+}
+
+#cube.sweep .sweepOuter{
+  opacity: 1;
+  animation: sweepMove var(--sweepDur) linear var(--sweepLoops);
+}
+
+@keyframes neonPulse {
+  0%   { filter: drop-shadow(0 0 2px rgba(0,0,0,.35)) drop-shadow(0 0 6px color-mix(in srgb, var(--accent) 50%, transparent)); }
+  50%  { filter: drop-shadow(0 0 2px rgba(0,0,0,.35)) drop-shadow(0 0 14px color-mix(in srgb, var(--accent) 70%, transparent)); }
+  100% { filter: drop-shadow(0 0 2px rgba(0,0,0,.35)) drop-shadow(0 0 6px color-mix(in srgb, var(--accent) 50%, transparent)); }
+}
+body.neon .frameSvg{
+  animation: neonPulse 0.9s ease-in-out infinite;
+}
+
+#ui{
+  position:fixed;
+  top:0; left:0; right:0;
+  min-height:42px;
+  display:flex;
+  align-items:center;
+  gap:6px;
+  padding:6px 10px;
+  background:var(--uiBg);
+  backdrop-filter: blur(8px);
+  z-index:9999;
+  border-bottom:1px solid rgba(255,255,255,.1);
+  overflow-x:auto;
+  flex-wrap:wrap;
+}
+
+#ui button{
+  background: rgba(255,255,255,.08);
+  color:#fff;
+  border:1px solid rgba(255,255,255,.16);
+  padding:6px 10px;
+  border-radius:8px;
+  cursor:pointer;
+  font-size:11px;
+  font-weight:600;
+  white-space:nowrap;
+  transition: transform .12s ease, background .12s ease, border-color .12s ease;
+}
+#ui button:hover{
+  background: rgba(255,255,255,.14);
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--accent) 45%, rgba(255,255,255,.18));
+}
+#ui button:active{ transform: scale(.97); }
+
+#ui button.success{
+  background: rgba(0,255,0,.2);
+  border-color: rgba(0,255,0,.4);
+}
+
+#ui button.error{
+  background: rgba(255,0,0,.2);
+  border-color: rgba(255,0,0,.4);
+}
+
+#ui label{
+  color:#fff;
+  font-size:11px;
+  display:flex;
+  align-items:center;
+  gap:4px;
+  white-space:nowrap;
+}
+
+#ui input[type="number"]{
+  background:#000;
+  color:#fff;
+  border:1px solid rgba(255,255,255,.18);
+  width:60px;
+  padding:4px 6px;
+  border-radius:6px;
+  font-size:11px;
+  text-align:center;
+}
+#ui input[type="number"]:focus{
+  outline:none;
+  border-color: color-mix(in srgb, var(--accent) 55%, rgba(255,255,255,.18));
+}
+
+#ui input[type="range"]{
+  width:80px;
+  height:4px;
+  background: rgba(255,255,255,.18);
+  border-radius:2px;
+  outline:none;
+  cursor:pointer;
+}
+#ui input[type="range"]::-webkit-slider-thumb{
+  appearance:none;
+  width:12px; height:12px;
+  background: var(--accent);
+  border-radius:50%;
+  cursor:pointer;
+}
+#ui input[type="range"]::-moz-range-thumb{
+  width:12px; height:12px;
+  background: var(--accent);
+  border-radius:50%;
+  border:none;
+}
+
+#rotXValue,#rotYValue,#rotZValue{
+  color: color-mix(in srgb, var(--accent) 80%, #fff 20%);
+  font-weight:800;
+  min-width:32px;
+  text-align:center;
+}
+
+.sep{
+  width:1px;
+  height:16px;
+  background: rgba(255,255,255,.18);
+  margin:0 4px;
+  flex-shrink:0;
+}
+
+#camStatus{
+  color:#0f0;
+  font-size:10px;
+  padding:4px 8px;
+  background:rgba(0,0,0,.4);
+  border-radius:6px;
+  max-width:200px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+
+#camStatus.error{
+  color:#f00;
+}
+
+#camStatus.info{
+  color:#ff0;
+}
+
+@media (max-width:768px){
+  #ui{ padding:6px 10px; }
+  #ui button{ font-size:10px; padding:4px 8px; }
+}
   </style>
 </head>
 <body>
   <div id="stage">
     <div id="rig">
-      <div id="cube">
-        <div class="face front"><div class="content"><video class="faceCam" autoplay playsinline muted></video></div><div class="frame"></div></div>
-        <div class="face back"><div class="content"><video class="faceCam" autoplay playsinline muted></video></div><div class="frame"></div></div>
-        <div class="face right"><div class="content"><video class="faceCam" autoplay playsinline muted></video></div><div class="frame"></div></div>
-        <div class="face left"><div class="content"><video class="faceCam" autoplay playsinline muted></video></div><div class="frame"></div></div>
-        <div class="face top"><div class="content"><video class="faceCam" autoplay playsinline muted></video></div><div class="frame"></div></div>
-        <div class="face bottom"><div class="content"><video class="faceCam" autoplay playsinline muted></video></div><div class="frame"></div></div>
+      <div id="cube" class="draggable">
+        <div class="face face-front">
+          <div class="face-content">
+            <div class="camSlot">
+              <img class="camMock" src="https://via.placeholder.com/400x400/1a1d2e/ffffff?text=Front" alt="Front">
+              <video class="camVideo" autoplay playsinline muted></video>
+            </div>
+            <svg class="frameSvg" viewBox="0 0 160 160" width="160" height="160">
+              <path class="baseOuter"></path>
+              <path class="sweepOuter"></path>
+            </svg>
+          </div>
+        </div>
+
+        <div class="face face-back">
+          <div class="face-content">
+            <div class="camSlot">
+              <img class="camMock" src="https://via.placeholder.com/400x400/1a1d2e/ffffff?text=Back" alt="Back">
+              <video class="camVideo" autoplay playsinline muted></video>
+            </div>
+            <svg class="frameSvg" viewBox="0 0 160 160" width="160" height="160">
+              <path class="baseOuter"></path>
+              <path class="sweepOuter"></path>
+            </svg>
+          </div>
+        </div>
+
+        <div class="face face-right">
+          <div class="face-content">
+            <div class="camSlot">
+              <img class="camMock" src="https://via.placeholder.com/400x400/1a1d2e/ffffff?text=Right" alt="Right">
+              <video class="camVideo" autoplay playsinline muted></video>
+            </div>
+            <svg class="frameSvg" viewBox="0 0 160 160" width="160" height="160">
+              <path class="baseOuter"></path>
+              <path class="sweepOuter"></path>
+            </svg>
+          </div>
+        </div>
+
+        <div class="face face-left">
+          <div class="face-content">
+            <div class="camSlot">
+              <img class="camMock" src="https://via.placeholder.com/400x400/1a1d2e/ffffff?text=Left" alt="Left">
+              <video class="camVideo" autoplay playsinline muted></video>
+            </div>
+            <svg class="frameSvg" viewBox="0 0 160 160" width="160" height="160">
+              <path class="baseOuter"></path>
+              <path class="sweepOuter"></path>
+            </svg>
+          </div>
+        </div>
+
+        <div class="face face-top">
+          <div class="face-content">
+            <div class="camSlot">
+              <img class="camMock" src="https://via.placeholder.com/400x400/1a1d2e/ffffff?text=Top" alt="Top">
+              <video class="camVideo" autoplay playsinline muted></video>
+            </div>
+            <svg class="frameSvg" viewBox="0 0 160 160" width="160" height="160">
+              <path class="baseOuter"></path>
+              <path class="sweepOuter"></path>
+            </svg>
+          </div>
+        </div>
+
+        <div class="face face-bottom">
+          <div class="face-content">
+            <div class="camSlot">
+              <img class="camMock" src="https://via.placeholder.com/400x400/1a1d2e/ffffff?text=Bottom" alt="Bottom">
+              <video class="camVideo" autoplay playsinline muted></video>
+            </div>
+            <svg class="frameSvg" viewBox="0 0 160 160" width="160" height="160">
+              <path class="baseOuter"></path>
+              <path class="sweepOuter"></path>
+            </svg>
+          </div>
+        </div>
       </div>
     </div>
   </div>
 
-  <div id="hud">
-    <div><b>Cubo</b> <small id="st">boot</small></div>
-    <div><small>WS:</small> <small id="wsSt">offline</small></div>
-    <div><small>Tip:</small> <small>adicione ?ws=ws://127.0.0.1:8080 se quiser</small></div>
-    <div id="btns">
-      <button id="cam">Cam</button>
-      <button id="drop">Drop</button>
-      <button id="bounce">Bounce</button>
-      <button id="reset">Reset</button>
-    </div>
+  <div id="ui">
+    <button data-act="drop">⬇️ Soltar</button>
+    <button data-act="bounce">⬆️ Pular</button>
+    <button data-act="reset">🔄 Reset</button>
+
+    <div class="sep"></div>
+
+    <label>
+      X: <input type="range" id="rotationX" min="-100" max="100" value="78" step="1">
+      <span id="rotXValue">78°</span>
+    </label>
+
+    <label>
+      Y: <input type="range" id="rotationY" min="-100" max="100" value="5" step="1">
+      <span id="rotYValue">5°</span>
+    </label>
+
+    <label>
+      Z: <input type="range" id="rotationZ" min="-100" max="100" value="-41" step="1">
+      <span id="rotZValue">-41°</span>
+    </label>
+
+    <div class="sep"></div>
+
+    <label>
+      Tamanho:
+      <input type="number" id="cubeSizeInput" min="100" max="500" step="10" value="160">
+    </label>
+    <button data-act="applySize">✔️</button>
+
+    <div class="sep"></div>
+
+    <button data-act="camOn" id="camOnBtn">📷 Ativar</button>
+    <button data-act="camOff" id="camOffBtn" disabled>❌ Parar</button>
+    <span id="camStatus"></span>
+
+    <div class="sep"></div>
+
+    <button data-evt="twitch.sub">💛 Sub</button>
+    <button data-evt="twitch.giftsub">💙 Gift</button>
+    <button data-evt="twitch.bits">💜 Bits</button>
+    <button data-evt="youtube.member">⭐ Member</button>
+    <button data-evt="youtube.superchat">💰 Super</button>
+    <button data-evt="twitch.donate">💚 Donate</button>
   </div>
 
-<script>
-(() => {
-  'use strict';
+  <video id="camSource" autoplay playsinline muted style="display:none"></video>
 
-  const WS_DEFAULT = 'ws://127.0.0.1:8080';
-  const qs = new URLSearchParams(location.search);
-  const WS_URL = qs.get('ws') || WS_DEFAULT;
+  <script>
+(function() {
+  "use strict";
+
+  const CONFIG = {
+    size: 160,
+    physics: {
+      gravity: 1.2,
+      restitution: 0.40,
+      friction: 0.7,
+      density: 0.006,
+      bounceForceY: 0.65,
+      bounceForceXMin: 0.25,
+      bounceForceXMax: 0.55,
+      dropVelocity: 0.2,
+      initialX: 200,
+      initialY: 180,
+      margin: { top: 80, sides: 80, bottom: 60 },
+    },
+
+    themes: {
+      "twitch.sub":       { color: "#ffd400", neon: false },
+      "twitch.giftsub":   { color: "#2ea7ff", neon: false },
+      "twitch.bits":      { color: "#9146ff", neon: false },
+      "twitch.follow":    { color: "#ff0000", neon: false },
+      "twitch.donate":    { color: "#00ff00", neon: false },
+
+      "youtube.member":     { color: "#f8ff3b", neon: true },
+      "youtube.membergift": { color: "#f8ff3b", neon: true },
+      "youtube.superchat":  { color: "#2ea7ff", neon: true },
+      "youtube.follow":     { color: "#ff0000", neon: true },
+      "youtube.donate":     { color: "#00ff00", neon: true },
+    },
+
+    fx: {
+      minIntervalMs: 110,
+      neonHoldMs: 1800,
+      sweepHoldMs: 1200,
+      loops: 3,
+      durMs: 560,
+      segRatio: 0.14,
+    },
+
+    streamerbot: { defaultWs: "ws://127.0.0.1:8080/" },
+
+    spin3d: {
+      damping: 0.96,
+      stopW: 0.0003,
+      stopV: 0.01,
+      dropKick: 0.06,
+      bounceKick: 0.15,
+      collisionKick: 0.08,
+      maxW: 0.30,
+      axisVariation: 0.7,
+    }
+  };
+
+  const state = {
+    isFrozen: true,
+    lastCornerPosition: { x: CONFIG.physics.initialX, y: CONFIG.physics.initialY },
+    rotation: { x: 78, y: 5, z: -41 },
+    dragging: { active: false, startX: 0, startY: 0, offsetX: 0, offsetY: 0 },
+    lastFxAt: 0,
+    neonTimer: null,
+    sweepTimer: null,
+    running: true,
+    spin: {
+      q: [1, 0, 0, 0],
+      w: [0, 0, 0],
+      lastV: [0, 0],
+    }
+  };
 
   const el = {
-    rig: document.getElementById('rig'),
-    st: document.getElementById('st'),
-    wsSt: document.getElementById('wsSt'),
-    cams: Array.from(document.querySelectorAll('video.faceCam')),
-    camBtn: document.getElementById('cam'),
-    dropBtn: document.getElementById('drop'),
-    bounceBtn: document.getElementById('bounce'),
-    resetBtn: document.getElementById('reset'),
+    root: document.documentElement,
+    body: document.body,
+    cube: document.getElementById("cube"),
+    rig: document.getElementById("rig"),
+    ui: document.getElementById("ui"),
+    sizeInput: document.getElementById("cubeSizeInput"),
+    rotationX: document.getElementById("rotationX"),
+    rotationY: document.getElementById("rotationY"),
+    rotationZ: document.getElementById("rotationZ"),
+    rotXValue: document.getElementById("rotXValue"),
+    rotYValue: document.getElementById("rotYValue"),
+    rotZValue: document.getElementById("rotZValue"),
+    camSource: document.getElementById("camSource"),
+    camStatus: document.getElementById("camStatus"),
+    camOnBtn: document.getElementById("camOnBtn"),
+    camOffBtn: document.getElementById("camOffBtn"),
   };
 
-  const clamp = (v,min,max) => Math.max(min, Math.min(max, v));
+  const clamp = function(v, min, max) { return Math.max(min, Math.min(max, v)); };
+  const now = function() { return performance.now(); };
 
-  // Quaternion utils
-  const qNorm = (q) => {
-    const n = Math.hypot(q[0],q[1],q[2],q[3]) || 1;
-    return [q[0]/n,q[1]/n,q[2]/n,q[3]/n];
-  };
-  const qMul = (a,b) => ([
-    a[0]*b[0] - a[1]*b[1] - a[2]*b[2] - a[3]*b[3],
-    a[0]*b[1] + a[1]*b[0] + a[2]*b[3] - a[3]*b[2],
-    a[0]*b[2] - a[1]*b[3] + a[2]*b[0] + a[3]*b[1],
-    a[0]*b[3] + a[1]*b[2] - a[2]*b[1] + a[3]*b[0],
-  ]);
-  const qFromAxisAngle = (ax,ay,az,ang) => {
-    const half = ang * 0.5, s = Math.sin(half);
-    const n = Math.hypot(ax,ay,az) || 1;
+  function setStatus(msg, type) {
+    el.camStatus.textContent = msg;
+    el.camStatus.className = "";
+    if (type === "error") {
+      el.camStatus.classList.add("error");
+    } else if (type === "info") {
+      el.camStatus.classList.add("info");
+    }
+  }
+
+  function getWsUrlFromQuery() {
+    const qs = new URLSearchParams(location.search);
+    return qs.get("ws") || CONFIG.streamerbot.defaultWs;
+  }
+
+  function uiSyncRotation() {
+    el.rotationX.value = String(state.rotation.x);
+    el.rotationY.value = String(state.rotation.y);
+    el.rotationZ.value = String(state.rotation.z);
+    el.rotXValue.textContent = state.rotation.x + "°";
+    el.rotYValue.textContent = state.rotation.y + "°";
+    el.rotZValue.textContent = state.rotation.z + "°";
+  }
+
+  function qNormalize(q) {
+    const w = q[0], x = q[1], y = q[2], z = q[3];
+    const n = Math.hypot(w,x,y,z) || 1;
+    return [w/n, x/n, y/n, z/n];
+  }
+
+  function qMul(a, b) {
+    const aw = a[0], ax = a[1], ay = a[2], az = a[3];
+    const bw = b[0], bx = b[1], by = b[2], bz = b[3];
+    return [
+      aw*bw - ax*bx - ay*by - az*bz,
+      aw*bx + ax*bw + ay*bz - az*by,
+      aw*by - ax*bz + ay*bw + az*bx,
+      aw*bz + ax*by - ay*bx + az*bw
+    ];
+  }
+
+  function qFromAxisAngle(ax, ay, az, ang) {
+    const half = ang * 0.5;
+    const s = Math.sin(half);
+    const n = Math.hypot(ax, ay, az) || 1;
     return [Math.cos(half), (ax/n)*s, (ay/n)*s, (az/n)*s];
-  };
-  const qToAxisAngle = (q) => {
-    const qq = qNorm(q);
-    let w = clamp(qq[0], -1, 1);
+  }
+
+  function qFromEuler(rx, ry, rz) {
+    const cx = Math.cos(rx/2), sx = Math.sin(rx/2);
+    const cy = Math.cos(ry/2), sy = Math.sin(ry/2);
+    const cz = Math.cos(rz/2), sz = Math.sin(rz/2);
+    const w = cx*cy*cz - sx*sy*sz;
+    const x = sx*cy*cz + cx*sy*sz;
+    const y = cx*sy*cz - sx*cy*sz;
+    const z = cx*cy*sz + sx*sy*cz;
+    return [w,x,y,z];
+  }
+
+  function qToAxisAngle(q) {
+    const qq = qNormalize(q);
+    let w = qq[0], x = qq[1], y = qq[2], z = qq[3];
+    w = clamp(w, -1, 1);
     const ang = 2 * Math.acos(w);
     const s = Math.sqrt(1 - w*w);
-    if (s < 1e-6 || !Number.isFinite(s)) return {ax:1,ay:0,az:0,ang:0};
-    return {ax: qq[1]/s, ay: qq[2]/s, az: qq[3]/s, ang};
-  };
-  const randUnit = () => {
-    const u = Math.random()*2 - 1;
-    const t = Math.random()*Math.PI*2;
-    const r = Math.sqrt(1-u*u);
+    if (s < 0.00001 || !isFinite(s)) {
+      return { ax: 1, ay: 0, az: 0, ang: 0 };
+    }
+    return { ax: x/s, ay: y/s, az: z/s, ang: ang };
+  }
+
+  function randomUnitVec3() {
+    const u = Math.random() * 2 - 1;
+    const t = Math.random() * Math.PI * 2;
+    const r = Math.sqrt(1 - u*u);
     return [r*Math.cos(t), u, r*Math.sin(t)];
+  }
+
+  function randomVariedVec3() {
+    const base = randomUnitVec3();
+    const variation = CONFIG.spin3d.axisVariation;
+    return [
+      base[0] * (1 + (Math.random() - 0.5) * variation),
+      base[1] * (1 + (Math.random() - 0.5) * variation),
+      base[2] * (1 + (Math.random() - 0.5) * variation)
+    ];
+  }
+
+  var PhysicsEngine = function(onCollisionKick) {
+    this.engine = Matter.Engine.create();
+    this.engine.gravity.y = CONFIG.physics.gravity;
+
+    this.cubeBody = Matter.Bodies.rectangle(
+      CONFIG.physics.initialX,
+      CONFIG.physics.initialY,
+      CONFIG.size,
+      CONFIG.size,
+      {
+        restitution: CONFIG.physics.restitution,
+        friction: CONFIG.physics.friction,
+        density: CONFIG.physics.density,
+        isStatic: true,
+      }
+    );
+
+    this.walls = [];
+    this.createWalls();
+    Matter.World.add(this.engine.world, [this.cubeBody]);
+
+    var self = this;
+    Matter.Events.on(this.engine, "collisionStart", function(ev) {
+      if (state.isFrozen) return;
+      if (typeof onCollisionKick === "function") onCollisionKick(ev);
+    });
   };
 
-  // Matter
-  const Engine = Matter.Engine, World = Matter.World, Bodies = Matter.Bodies, Body = Matter.Body, Events = Matter.Events;
-  const engine = Engine.create();
-  engine.gravity.y = 1.15;
+  PhysicsEngine.prototype.createWalls = function() {
+    const top = CONFIG.physics.margin.top;
+    const sides = CONFIG.physics.margin.sides;
+    const bottom = CONFIG.physics.margin.bottom;
+    const thickness = 100;
+    const halfT = thickness / 2;
 
-  let size = 180;
-  let cubeBody = Bodies.rectangle(260, 200, size, size, { restitution: 0.35, friction: 0.75, density: 0.006, isStatic: true });
-  World.add(engine.world, cubeBody);
+    if (this.walls.length) {
+      Matter.World.remove(this.engine.world, this.walls);
+      this.walls.length = 0;
+    }
 
-  let walls = [];
-  function rebuildWalls(){
-    walls.forEach(w => World.remove(engine.world, w));
-    walls = [];
-    const t = 200, half = t/2;
-    const top = 80, side = 80, bottom = 60;
-    const W = innerWidth, H = innerHeight;
+    const floorY = window.innerHeight - bottom + halfT;
+    const ceilY  = top - halfT;
+    const leftX  = sides - halfT;
+    const rightX = window.innerWidth - sides + halfT;
 
-    walls.push(
-      Bodies.rectangle(W/2, H - bottom + half, W + t, t, { isStatic:true }),
-      Bodies.rectangle(W/2, top - half,        W + t, t, { isStatic:true }),
-      Bodies.rectangle(side - half, H/2,       t, H + t, { isStatic:true }),
-      Bodies.rectangle(W - side + half, H/2,   t, H + t, { isStatic:true }),
+    this.walls.push(
+      Matter.Bodies.rectangle(window.innerWidth / 2, floorY, window.innerWidth * 2, thickness, { isStatic: true }),
+      Matter.Bodies.rectangle(window.innerWidth / 2, ceilY,  window.innerWidth * 2, thickness, { isStatic: true }),
+      Matter.Bodies.rectangle(leftX,  window.innerHeight / 2, thickness, window.innerHeight * 2, { isStatic: true }),
+      Matter.Bodies.rectangle(rightX, window.innerHeight / 2, thickness, window.innerHeight * 2, { isStatic: true })
     );
-    World.add(engine.world, walls);
-  }
-  rebuildWalls();
-  addEventListener('resize', rebuildWalls);
 
-  // Spin
-  const spin = { q:[1,0,0,0], w:[0,0,0], damping:0.965, maxW:0.35, stopW:0.00035 };
-  function seedSpin(kick=0.08){
-    const v = randUnit();
-    const n = Math.hypot(v[0],v[1],v[2]) || 1;
-    spin.w[0] = clamp((v[0]/n)*kick, -spin.maxW, spin.maxW);
-    spin.w[1] = clamp((v[1]/n)*kick, -spin.maxW, spin.maxW);
-    spin.w[2] = clamp((v[2]/n)*kick, -spin.maxW, spin.maxW);
-  }
-  function updateSpin(){
-    const wmag = Math.hypot(spin.w[0],spin.w[1],spin.w[2]);
-    if (wmag < spin.stopW){ spin.w[0]=spin.w[1]=spin.w[2]=0; return; }
+    Matter.World.add(this.engine.world, this.walls);
+  };
 
-    spin.w[0] *= spin.damping; spin.w[1] *= spin.damping; spin.w[2] *= spin.damping;
-    spin.w[0] = clamp(spin.w[0], -spin.maxW, spin.maxW);
-    spin.w[1] = clamp(spin.w[1], -spin.maxW, spin.maxW);
-    spin.w[2] = clamp(spin.w[2], -spin.maxW, spin.maxW);
-
-    const ang = Math.hypot(spin.w[0],spin.w[1],spin.w[2]);
-    if (ang > 1e-8){
-      const dq = qFromAxisAngle(spin.w[0], spin.w[1], spin.w[2], ang);
-      spin.q = qNorm(qMul(dq, spin.q));
+  PhysicsEngine.prototype.update = function() { 
+    if (!state.isFrozen) {
+      Matter.Engine.update(this.engine, 16);
     }
-  }
+  };
 
-  let frozen = true;
+  PhysicsEngine.prototype.freeze = function() {
+    Matter.Body.setStatic(this.cubeBody, true);
+    Matter.Body.setVelocity(this.cubeBody, { x: 0, y: 0 });
+    Matter.Body.setAngularVelocity(this.cubeBody, 0);
+    state.isFrozen = true;
+  };
 
-  function applyTransform(){
-    const p = cubeBody.position;
-    const half = size / 2;
+  PhysicsEngine.prototype.drop = function() {
+    Matter.Body.setStatic(this.cubeBody, false);
+    state.isFrozen = false;
+    Matter.Body.setVelocity(this.cubeBody, { x: 0, y: 0 });
+    Matter.Body.setAngle(this.cubeBody, 0);
+    Matter.Body.setAngularVelocity(this.cubeBody, CONFIG.physics.dropVelocity);
+  };
 
-    let rotCSS = '';
-    if (frozen){
-      rotCSS = 'rotateX(78deg) rotateY(5deg) rotateZ(-41deg)';
+  PhysicsEngine.prototype.bounce = function() {
+    if (state.isFrozen) return;
+    const xMin = CONFIG.physics.bounceForceXMin;
+    const xMax = CONFIG.physics.bounceForceXMax;
+    const randomXMagnitude = xMin + Math.random() * (xMax - xMin);
+    const randomXDirection = Math.random() < 0.5 ? -1 : 1;
+    const randomXForce = randomXMagnitude * randomXDirection;
+    const upForce = -CONFIG.physics.bounceForceY;
+
+    Matter.Body.applyForce(this.cubeBody, this.cubeBody.position, {
+      x: randomXForce,
+      y: upForce
+    });
+
+    const current = this.cubeBody.angularVelocity;
+    const randomRot = (Math.random() - 0.5) * 0.8;
+    Matter.Body.setAngularVelocity(this.cubeBody, current + randomRot);
+  };
+
+  PhysicsEngine.prototype.resetToInitial = function() {
+    this.freeze();
+    const target = { x: CONFIG.physics.initialX, y: CONFIG.physics.initialY };
+    Matter.Body.setPosition(this.cubeBody, target);
+    Matter.Body.setVelocity(this.cubeBody, { x: 0, y: 0 });
+    Matter.Body.setAngularVelocity(this.cubeBody, 0);
+    Matter.Body.setAngle(this.cubeBody, 0);
+    state.rotation.x = 78;
+    state.rotation.y = 5;
+    state.rotation.z = -41;
+    uiSyncRotation();
+  };
+
+  PhysicsEngine.prototype.setPosition = function(x, y) {
+    if (!state.isFrozen) return;
+    Matter.Body.setPosition(this.cubeBody, { x: x, y: y });
+    state.lastCornerPosition = { x: x, y: y };
+  };
+
+  PhysicsEngine.prototype.updateSize = function(newSize) {
+    const currentPos = this.cubeBody.position;
+    const wasStatic = this.cubeBody.isStatic;
+    Matter.World.remove(this.engine.world, this.cubeBody);
+
+    this.cubeBody = Matter.Bodies.rectangle(
+      currentPos.x,
+      currentPos.y,
+      newSize,
+      newSize,
+      {
+        restitution: CONFIG.physics.restitution,
+        friction: CONFIG.physics.friction,
+        density: CONFIG.physics.density,
+        isStatic: wasStatic,
+      }
+    );
+
+    Matter.World.add(this.engine.world, this.cubeBody);
+  };
+
+  PhysicsEngine.prototype.getPosition = function() { return this.cubeBody.position; };
+  PhysicsEngine.prototype.getVelocity = function() { return this.cubeBody.velocity; };
+
+  var VisualManager = function() {
+    this.lastTransform = "";
+    this.applySize(CONFIG.size);
+    this.preparePaths();
+  };
+
+  VisualManager.prototype.applySize = function(newSize) {
+    CONFIG.size = newSize;
+    el.root.style.setProperty("--size", newSize + "px");
+
+    const outer = parseFloat(getComputedStyle(el.root).getPropertyValue("--outer")) || 3.2;
+    const s = newSize;
+    const d = "M " + (outer/2) + " " + (outer/2) + " H " + (s - outer/2) + " V " + (s - outer/2) + " H " + (outer/2) + " Z";
+
+    var svgs = document.querySelectorAll(".frameSvg");
+    for (var i = 0; i < svgs.length; i++) {
+      var svg = svgs[i];
+      svg.setAttribute("viewBox", "0 0 " + s + " " + s);
+      svg.setAttribute("width", s);
+      svg.setAttribute("height", s);
+
+      const base = svg.querySelector(".baseOuter");
+      const sweep = svg.querySelector(".sweepOuter");
+
+      if (base) base.setAttribute("d", d);
+      if (sweep) sweep.setAttribute("d", d);
+    }
+
+    this.preparePaths();
+  };
+
+  VisualManager.prototype.preparePaths = function() {
+    var paths = document.querySelectorAll(".sweepOuter");
+    for (var i = 0; i < paths.length; i++) {
+      paths[i].style.strokeDasharray = "0 1000";
+      paths[i].style.strokeDashoffset = "0";
+    }
+  };
+
+  VisualManager.prototype.updateCubeTransform = function(x, y, axisAngleOrEuler, isFrozen) {
+    const half = CONFIG.size / 2;
+
+    var rotPart = "";
+    if (isFrozen) {
+      const rx = axisAngleOrEuler.rx;
+      const ry = axisAngleOrEuler.ry;
+      const rz = axisAngleOrEuler.rz;
+      rotPart = "rotateX(" + rx + "rad) rotateY(" + ry + "rad) rotateZ(" + rz + "rad)";
     } else {
-      const aa = qToAxisAngle(spin.q);
-      rotCSS = `rotate3d(${aa.ax},${aa.ay},${aa.az},${aa.ang}rad)`;
+      const ax = axisAngleOrEuler.ax;
+      const ay = axisAngleOrEuler.ay;
+      const az = axisAngleOrEuler.az;
+      const ang = axisAngleOrEuler.ang;
+      rotPart = "rotate3d(" + ax + ", " + ay + ", " + az + ", " + ang + "rad)";
     }
-    el.rig.style.transform = `translate3d(${p.x-half}px,${p.y-half}px,0) ${rotCSS}`;
-  }
 
-  function loop(){
-    if (!frozen){
-      Engine.update(engine, 16);
-      updateSpin();
+    const transform = "translate3d(" + (x - half) + "px, " + (y - half) + "px, 0) " + rotPart;
+
+    if (transform !== this.lastTransform) {
+      el.rig.style.transform = transform;
+      this.lastTransform = transform;
     }
-    applyTransform();
-    requestAnimationFrame(loop);
-  }
-  requestAnimationFrame(loop);
+  };
 
-  function cmdDrop(){
-    frozen = false;
-    Body.setStatic(cubeBody, false);
-    Body.setVelocity(cubeBody, {x:0,y:0});
-    Body.setAngularVelocity(cubeBody, 0.18);
-    seedSpin(0.09);
-    el.st.textContent = 'drop';
-  }
-  function cmdBounce(){
-    if (frozen) return;
-    Body.applyForce(cubeBody, cubeBody.position, { x:(Math.random()>.5?1:-1)*0.03, y:-0.07 });
-    seedSpin(0.07);
-    el.st.textContent = 'bounce';
-  }
-  function cmdReset(){
-    frozen = true;
-    Body.setStatic(cubeBody, true);
-    Body.setPosition(cubeBody, {x:260,y:200});
-    Body.setVelocity(cubeBody, {x:0,y:0});
-    Body.setAngularVelocity(cubeBody, 0);
-    spin.q = [1,0,0,0];
-    spin.w = [0,0,0];
-    el.st.textContent = 'reset';
-  }
+  VisualManager.prototype.setTheme = function(key) {
+    const t = CONFIG.themes[key];
+    if (!t) return;
 
-  Events.on(engine, 'collisionStart', () => { if (!frozen) seedSpin(0.03); });
+    const tnow = now();
+    if (tnow - state.lastFxAt < CONFIG.fx.minIntervalMs) return;
+    state.lastFxAt = tnow;
 
-  async function camOn(){
-    const constraints = { video: { width:{ideal:1280}, height:{ideal:720}, frameRate:{ideal:30} }, audio:false };
-    const stream = await navigator.mediaDevices.getUserMedia(constraints);
-    el.cams.forEach(v => v.srcObject = stream);
-    el.st.textContent = 'cam on';
-  }
+    el.root.style.setProperty("--accent", t.color);
+    this.runSweepMulti();
 
-  el.camBtn.onclick = () => camOn().catch(e => el.st.textContent = 'cam err');
-  el.dropBtn.onclick = cmdDrop;
-  el.bounceBtn.onclick = cmdBounce;
-  el.resetBtn.onclick = cmdReset;
+    if (t.neon) this.enableNeonHold();
+    else this.disableNeon();
+  };
 
-  // WS bridge (Streamer.bot)
-  let ws = null;
-  function connectWS(){
-    try{
-      ws = new WebSocket(WS_URL);
-      el.wsSt.textContent = 'connecting…';
+  VisualManager.prototype.runSweepMulti = function() {
+    var pathsArr = Array.from(document.querySelectorAll(".sweepOuter"));
+    if (!pathsArr.length) return;
 
-      ws.addEventListener('open', () => el.wsSt.textContent = 'online');
-      ws.addEventListener('close', () => { el.wsSt.textContent='offline'; setTimeout(connectWS, 1500); });
+    el.root.style.setProperty("--sweepDur", CONFIG.fx.durMs + "ms");
+    el.root.style.setProperty("--sweepLoops", CONFIG.fx.loops);
 
-      ws.addEventListener('message', (ev) => {
-        let msg = null;
-        try { msg = JSON.parse(ev.data); } catch { return; }
+    for (var i = 0; i < pathsArr.length; i++) {
+      var p = pathsArr[i];
+      var len = 0;
+      try { len = p.getTotalLength(); } catch (e) { len = 0; }
+      if (!len || !Number.isFinite(len)) len = 600;
 
-        // accept: {cmd:"drop"} OR {key:"drop"} OR {data:{cmd:"drop"}}
-        const inner = (msg && msg.data && typeof msg.data === 'object') ? msg.data : null;
-        const finalCmd = (inner && (inner.cmd || inner.key || inner.action)) || (msg.cmd || msg.key || msg.action);
-        if (!finalCmd) return;
+      const seg = Math.max(40, len * CONFIG.fx.segRatio);
 
-        if (finalCmd === 'drop') cmdDrop();
-        else if (finalCmd === 'bounce') cmdBounce();
-        else if (finalCmd === 'reset') cmdReset();
-        else if (finalCmd === 'camOn') camOn();
+      p.style.strokeDasharray = seg + " " + Math.max(1, len - seg);
+      p.style.setProperty("--dashFrom", len);
+      p.style.setProperty("--dashTo", -len);
+      p.style.strokeDashoffset = len;
+
+      void p.getBoundingClientRect();
+    }
+
+    el.cube.classList.remove("sweep");
+    void el.cube.offsetWidth;
+    el.cube.classList.add("sweep");
+
+    if (state.sweepTimer) clearTimeout(state.sweepTimer);
+    state.sweepTimer = setTimeout(function() {
+      el.cube.classList.remove("sweep");
+      state.sweepTimer = null;
+    }, CONFIG.fx.sweepHoldMs);
+  };
+
+  VisualManager.prototype.enableNeonHold = function() {
+    el.body.classList.add("neon");
+    if (state.neonTimer) clearTimeout(state.neonTimer);
+    state.neonTimer = setTimeout(function() {
+      el.body.classList.remove("neon");
+      state.neonTimer = null;
+    }, CONFIG.fx.neonHoldMs);
+  };
+
+  VisualManager.prototype.disableNeon = function() {
+    el.body.classList.remove("neon");
+    if (state.neonTimer) {
+      clearTimeout(state.neonTimer);
+      state.neonTimer = null;
+    }
+  };
+
+  var DragController = function(physics) {
+    this.physics = physics;
+    this.init();
+  };
+
+  DragController.prototype.init = function() {
+    var self = this;
+    el.cube.addEventListener("mousedown", function(e) { self.onStart(e); });
+    document.addEventListener("mousemove", function(e) { self.onMove(e); });
+    document.addEventListener("mouseup", function() { self.onEnd(); });
+
+    el.cube.addEventListener("touchstart", function(e) {
+      e.preventDefault();
+      self.onStart(e.touches[0]);
+    }, { passive: false });
+
+    document.addEventListener("touchmove", function(e) {
+      if (!state.dragging.active) return;
+      e.preventDefault();
+      self.onMove(e.touches[0]);
+    }, { passive: false });
+
+    document.addEventListener("touchend", function() { self.onEnd(); });
+  };
+
+  DragController.prototype.onStart = function(e) {
+    if (!state.isFrozen) return;
+
+    state.dragging.active = true;
+    state.dragging.startX = e.clientX;
+    state.dragging.startY = e.clientY;
+
+    const pos = this.physics.getPosition();
+    state.dragging.offsetX = pos.x;
+    state.dragging.offsetY = pos.y;
+
+    el.cube.classList.add("dragging");
+  };
+
+  DragController.prototype.onMove = function(e) {
+    if (!state.dragging.active) return;
+    const dx = e.clientX - state.dragging.startX;
+    const dy = e.clientY - state.dragging.startY;
+    this.physics.setPosition(state.dragging.offsetX + dx, state.dragging.offsetY + dy);
+  };
+
+  DragController.prototype.onEnd = function() {
+    state.dragging.active = false;
+    el.cube.classList.remove("dragging");
+  };
+
+  var CameraManager = function() {
+    this.stream = null;
+    this.faceVideos = Array.from(document.querySelectorAll(".camVideo"));
+  };
+
+  CameraManager.prototype.start = function() {
+    var self = this;
+    if (this.stream) {
+      setStatus("Câmera já ativa", "info");
+      return Promise.resolve(true);
+    }
+
+    setStatus("Conectando...", "info");
+    console.log("[Camera] Tentando conectar...");
+
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setStatus("ERRO: navegador não suporta", "error");
+      console.error("[Camera] getUserMedia não disponível");
+      return Promise.reject(new Error("getUserMedia não suportado"));
+    }
+
+    var constraints = {
+      video: {
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+        frameRate: { ideal: 30 }
+      },
+      audio: false
+    };
+
+    return navigator.mediaDevices.getUserMedia(constraints)
+      .then(function(stream) {
+        console.log("[Camera] Stream obtido:", stream);
+        self.stream = stream;
+        el.camSource.srcObject = stream;
+
+        for (var i = 0; i < self.faceVideos.length; i++) {
+          self.faceVideos[i].srcObject = stream;
+        }
+
+        el.body.classList.add("hasCam");
+        el.camOnBtn.disabled = true;
+        el.camOffBtn.disabled = false;
+
+        setStatus("✅ CONECTADO!", "");
+        console.log("[Camera] Câmera ativa nas 6 faces!");
+        return true;
+      })
+      .catch(function(err) {
+        console.error("[Camera] Erro:", err);
+        var msg = err.name || err.message || "Erro desconhecido";
+
+        if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
+          setStatus("ERRO: Permissão negada", "error");
+        } else if (err.name === "NotFoundError" || err.name === "DevicesNotFoundError") {
+          setStatus("ERRO: Câmera não encontrada", "error");
+        } else if (err.name === "NotReadableError" || err.name === "TrackStartError") {
+          setStatus("ERRO: Câmera em uso", "error");
+        } else {
+          setStatus("ERRO: " + msg, "error");
+        }
+
+        return false;
       });
-    } catch(e){
-      el.wsSt.textContent = 'ws error';
-      setTimeout(connectWS, 1500);
-    }
-  }
-  connectWS();
+  };
 
-  window.cubeApi = { drop:cmdDrop, bounce:cmdBounce, reset:cmdReset, camOn };
+  CameraManager.prototype.stop = function() {
+    if (!this.stream) return;
+
+    console.log("[Camera] Desconectando...");
+    var tracks = this.stream.getTracks();
+    for (var i = 0; i < tracks.length; i++) {
+      tracks[i].stop();
+    }
+    this.stream = null;
+
+    el.camSource.srcObject = null;
+    for (var i = 0; i < this.faceVideos.length; i++) {
+      this.faceVideos[i].srcObject = null;
+    }
+
+    el.body.classList.remove("hasCam");
+    el.camOnBtn.disabled = false;
+    el.camOffBtn.disabled = true;
+
+    setStatus("Câmera desconectada", "");
+    console.log("[Camera] Desconectada");
+  };
+
+  var StreamerBotBridge = function(controller) {
+    this.controller = controller;
+    this.ws = null;
+    this.connect();
+  };
+
+  StreamerBotBridge.prototype.connect = function() {
+    var self = this;
+    const url = getWsUrlFromQuery();
+    try {
+      this.ws = new WebSocket(url);
+      this.ws.addEventListener("open", function() { 
+        console.log("[Overlay] CONECTADO AO STREAMER.BOT:", url); 
+        setStatus("✅ Bot Conectado", "info");
+      });
+      this.ws.addEventListener("message", function(ev) { 
+        console.log("[Overlay] Mensagem recebida:", ev.data);
+        self.onMessage(ev.data); 
+      });
+      this.ws.addEventListener("close", function() {
+        console.warn("[Overlay] Conexão com Bot perdida.");
+        setStatus("❌ Bot Desconectado", "error");
+        setTimeout(function() { self.connect(); }, 2000);
+      });
+    } catch (e) {
+      console.warn("[Overlay] Erro ao iniciar WS:", e);
+    }
+  };
+
+  StreamerBotBridge.prototype.onMessage = function(raw) {
+    // 1. Mostra na tela o que chegou (Debug Visual)
+    el.camStatus.textContent = "REC: " + raw.substring(0, 50) + "...";
+    el.camStatus.className = "info";
+
+    var msg;
+    try { msg = JSON.parse(raw); } catch (e) { return; }
+    if (!msg || typeof msg !== "object") return;
+
+    // --- CORREÇÃO DE FORMATO (O "Pulo do Gato") ---
+    // Se a mensagem vier embrulhada dentro de "data" ou "payload", nós desembrulhamos
+    if (msg.data && typeof msg.data === 'object') msg = msg.data;
+    if (msg.payload && typeof msg.payload === 'object') msg = msg.payload;
+    if (typeof msg === 'string') { try { msg = JSON.parse(msg); } catch(e){} }
+    // ------------------------------------------------
+
+    console.log("[Overlay] Comando Processado:", msg);
+
+
+    // --- LÓGICA DE COMANDOS (compatível com Streamer.bot) ---
+    // Aceita formatos simples vindos de CPH.WebsocketBroadcastJson, por exemplo:
+    // {"key":"drop"}  |  {"cmd":"drop"}  |  {"action":"drop"}
+    // e também mantém compatibilidade com {"type":"event","key":"twitch.sub"}.
+
+    const type = (msg.type != null ? String(msg.type) : '').trim();
+    const key = (msg.key ?? msg.cmd ?? msg.action ?? msg.eventKey ?? msg.name);
+    const k = (key != null ? String(key) : '').trim();
+
+    // Física
+    if (k === 'drop') {
+      this.controller.seedSpinFromSliders(CONFIG.spin3d.dropKick);
+      this.controller.physics.drop();
+      return;
+    }
+
+    if (k === 'bounce') {
+      if (!state.isFrozen) {
+        const vec = randomVariedVec3();
+        const norm = Math.hypot(vec[0], vec[1], vec[2]) || 1;
+        const kick = CONFIG.spin3d.bounceKick;
+        state.spin.w[0] = (vec[0] / norm) * kick;
+        state.spin.w[1] = (vec[1] / norm) * kick;
+        state.spin.w[2] = (vec[2] / norm) * kick;
+        this.controller.physics.bounce();
+      }
+      return;
+    }
+
+    // Reset
+    if (k === 'reset' || type === 'reset') {
+      this.controller.reset();
+      return;
+    }
+
+    // Câmera
+    if (k === 'camOn') { this.controller.cam.start(); return; }
+    if (k === 'camOff') { this.controller.cam.stop(); return; }
+
+    // Temas (Twitch/YouTube)
+    if (k && CONFIG.themes[k]) {
+      this.controller.triggerEvent(k);
+      return;
+    }
+
+    // Compat: mensagens no estilo {type:'event', event:'event', key:'twitch.sub'}
+    if (type === 'event') {
+      const evt = (msg.event != null ? String(msg.event) : '').trim();
+      if ((evt === 'event' || evt === '') && k && CONFIG.themes[k]) {
+        this.controller.triggerEvent(k);
+      }
+    }
+else if (msg.type === "reset") {
+        this.controller.reset();
+    }
+  };
+
+  var CubeController = function() {
+    this.visual = new VisualManager();
+    var self = this;
+
+    this.physics = new PhysicsEngine(function(ev) { self.onCollision(ev); });
+    this.drag = new DragController(this.physics);
+    this.cam = new CameraManager();
+    this.bridge = new StreamerBotBridge(this);
+
+    this.bindUI();
+    this.bindRotation();
+    this.bindResize();
+    this.startLoop();
+
+    window.cubeApi = {
+      triggerEvent: function(key) { self.triggerEvent(key); },
+      reset: function() { self.reset(); },
+      camOn: function() { return self.cam.start(); },
+      camOff: function() { self.cam.stop(); },
+    };
+  };
+
+  CubeController.prototype.onCollision = function(ev) {
+    const sp = state.spin;
+    const v = this.physics.getVelocity();
+
+    const dvx = v.x - sp.lastV[0];
+    const dvy = v.y - sp.lastV[1];
+    const impact = Math.min(1.5, Math.abs(dvx) + Math.abs(dvy));
+
+    const kick = CONFIG.spin3d.collisionKick * impact;
+    if (kick <= 0) return;
+
+    const vec = randomVariedVec3();
+    const ax = vec[0], ay = vec[1], az = vec[2];
+    const norm = Math.hypot(ax, ay, az) || 1;
+
+    sp.w[0] += (ax/norm) * kick;
+    sp.w[1] += (ay/norm) * kick;
+    sp.w[2] += (az/norm) * kick;
+
+    sp.w[0] = clamp(sp.w[0], -CONFIG.spin3d.maxW, CONFIG.spin3d.maxW);
+    sp.w[1] = clamp(sp.w[1], -CONFIG.spin3d.maxW, CONFIG.spin3d.maxW);
+    sp.w[2] = clamp(sp.w[2], -CONFIG.spin3d.maxW, CONFIG.spin3d.maxW);
+  };
+
+  CubeController.prototype.seedSpinFromSliders = function(kickMagnitude) {
+    const rx = state.rotation.x * (Math.PI / 180);
+    const ry = state.rotation.y * (Math.PI / 180);
+    const rz = state.rotation.z * (Math.PI / 180);
+    state.spin.q = qNormalize(qFromEuler(rx, ry, rz));
+
+    const vec = randomVariedVec3();
+    const ax = vec[0], ay = vec[1], az = vec[2];
+    const norm = Math.hypot(ax, ay, az) || 1;
+    const k = kickMagnitude;
+
+    state.spin.w[0] = (ax/norm) * k;
+    state.spin.w[1] = (ay/norm) * k;
+    state.spin.w[2] = (az/norm) * k;
+
+    state.spin.lastV[0] = 0;
+    state.spin.lastV[1] = 0;
+  };
+
+  CubeController.prototype.updateSpin = function() {
+    const sp = state.spin;
+    const v = this.physics.getVelocity();
+
+    sp.lastV[0] = v.x;
+    sp.lastV[1] = v.y;
+
+    const wmag = Math.hypot(sp.w[0], sp.w[1], sp.w[2]);
+    const vmag = Math.hypot(v.x, v.y);
+
+    if (wmag < CONFIG.spin3d.stopW && vmag < CONFIG.spin3d.stopV) {
+      sp.w[0] = sp.w[1] = sp.w[2] = 0;
+      return;
+    }
+
+    sp.w[0] *= CONFIG.spin3d.damping;
+    sp.w[1] *= CONFIG.spin3d.damping;
+    sp.w[2] *= CONFIG.spin3d.damping;
+
+    sp.w[0] = clamp(sp.w[0], -CONFIG.spin3d.maxW, CONFIG.spin3d.maxW);
+    sp.w[1] = clamp(sp.w[1], -CONFIG.spin3d.maxW, CONFIG.spin3d.maxW);
+    sp.w[2] = clamp(sp.w[2], -CONFIG.spin3d.maxW, CONFIG.spin3d.maxW);
+
+    const wx = sp.w[0], wy = sp.w[1], wz = sp.w[2];
+    const ang = Math.hypot(wx, wy, wz);
+
+    if (ang > 0.0000001) {
+      const dq = qFromAxisAngle(wx, wy, wz, ang);
+      sp.q = qNormalize(qMul(dq, sp.q));
+    }
+  };
+
+  CubeController.prototype.bindUI = function() {
+    var self = this;
+    el.ui.addEventListener("click", function(e) {
+      const btn = e.target.closest("button");
+      if (!btn) return;
+
+      const act = btn.dataset.act;
+      const evt = btn.dataset.evt;
+
+      if (evt) { self.triggerEvent(evt); return; }
+      if (!act) return;
+
+      switch (act) {
+        case "drop":
+          self.seedSpinFromSliders(CONFIG.spin3d.dropKick);
+          self.physics.drop();
+          break;
+
+        case "bounce":
+          if (!state.isFrozen) {
+            const vec = randomVariedVec3();
+            const ax = vec[0], ay = vec[1], az = vec[2];
+            const norm = Math.hypot(ax, ay, az) || 1;
+            const kick = CONFIG.spin3d.bounceKick;
+
+            state.spin.w[0] += (ax/norm) * kick;
+            state.spin.w[1] += (ay/norm) * kick;
+            state.spin.w[2] += (az/norm) * kick;
+
+            state.spin.w[0] = clamp(state.spin.w[0], -CONFIG.spin3d.maxW, CONFIG.spin3d.maxW);
+            state.spin.w[1] = clamp(state.spin.w[1], -CONFIG.spin3d.maxW, CONFIG.spin3d.maxW);
+            state.spin.w[2] = clamp(state.spin.w[2], -CONFIG.spin3d.maxW, CONFIG.spin3d.maxW);
+          }
+          self.physics.bounce();
+          break;
+
+        case "reset":
+          self.reset();
+          break;
+
+        case "applySize":
+          self.applySize();
+          break;
+
+        case "camOn":
+          self.cam.start();
+          break;
+
+        case "camOff":
+          self.cam.stop();
+          break;
+      }
+    });
+  };
+
+  CubeController.prototype.bindRotation = function() {
+    function onInput(axis, valueEl) {
+      return function(e) {
+        state.rotation[axis] = parseInt(e.target.value, 10);
+        valueEl.textContent = state.rotation[axis] + "°";
+      };
+    }
+
+    el.rotationX.addEventListener("input", onInput("x", el.rotXValue));
+    el.rotationY.addEventListener("input", onInput("y", el.rotYValue));
+    el.rotationZ.addEventListener("input", onInput("z", el.rotZValue));
+
+    var self = this;
+    el.sizeInput.addEventListener("keypress", function(e) {
+      if (e.key === "Enter") self.applySize();
+    });
+  };
+
+  CubeController.prototype.bindResize = function() {
+    var self = this;
+    var t;
+    window.addEventListener("resize", function() {
+      clearTimeout(t);
+      t = setTimeout(function() {
+        self.physics.createWalls();
+        self.visual.applySize(CONFIG.size);
+        self.visual.preparePaths();
+      }, 250);
+    });
+  };
+
+  CubeController.prototype.applySize = function() {
+    const newSize = parseInt(el.sizeInput.value, 10);
+    if (Number.isNaN(newSize) || newSize < 100 || newSize > 500) {
+      alert("Tamanho inválido! Use valores entre 100 e 500.");
+      el.sizeInput.value = CONFIG.size;
+      return;
+    }
+
+    this.visual.applySize(newSize);
+    this.physics.updateSize(newSize);
+    this.physics.createWalls();
+  };
+
+  CubeController.prototype.triggerEvent = function(key) { this.visual.setTheme(key); };
+
+  CubeController.prototype.reset = function() {
+    this.physics.resetToInitial();
+    state.spin.w[0] = state.spin.w[1] = state.spin.w[2] = 0;
+    state.spin.q = [1,0,0,0];
+  };
+
+  CubeController.prototype.startLoop = function() {
+    var self = this;
+    function loop() {
+      if (!state.running) return;
+
+      self.physics.update();
+
+      const pos = self.physics.getPosition();
+
+      if (state.isFrozen) {
+        const rx = state.rotation.x * (Math.PI / 180);
+        const ry = state.rotation.y * (Math.PI / 180);
+        const rz = state.rotation.z * (Math.PI / 180);
+
+        self.visual.updateCubeTransform(pos.x, pos.y, { rx: rx, ry: ry, rz: rz }, true);
+      } else {
+        self.updateSpin();
+        const aa = qToAxisAngle(state.spin.q);
+        self.visual.updateCubeTransform(pos.x, pos.y, aa, false);
+      }
+
+      requestAnimationFrame(loop);
+    }
+
+    requestAnimationFrame(loop);
+  };
+
+  new CubeController();
 })();
-</script>
+  </script>
 </body>
 </html>
