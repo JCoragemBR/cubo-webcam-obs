@@ -1062,10 +1062,28 @@ body.neon .frameSvg{
     const url = getWsUrlFromQuery();
     try {
       this.ws = new WebSocket(url);
-      this.ws.addEventListener("open", function() { 
-        console.log("[Overlay] CONECTADO AO STREAMER.BOT:", url); 
-        setStatus("✅ Bot Conectado", "info");
-      });
+      this.ws.addEventListener("open", function () {
+  console.log("[Overlay] CONECTADO AO STREAMER.BOT:", url);
+  setStatus("✅ Bot Conectado", "info");
+
+  // Para receber eventos, você precisa se inscrever (Subscribe)
+  // (Streamer.bot: eventos NÃO são enviados sem Subscribe)
+  const sub = {
+    request: "Subscribe",
+    id: "cubo-sub",
+    events: {
+      General: ["Custom"]
+    }
+  };
+
+  try {
+    self.ws.send(JSON.stringify(sub));
+    console.log("[Overlay] Subscribe enviado:", sub);
+  } catch (e) {
+    console.warn("[Overlay] Falha ao enviar Subscribe", e);
+  }
+});
+
       this.ws.addEventListener("message", function(ev) { 
         console.log("[Overlay] Mensagem recebida:", ev.data);
         self.onMessage(ev.data); 
