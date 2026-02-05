@@ -529,7 +529,9 @@ body.neon .frameSvg{
     camSource: document.getElementById("camSource"),
     camStatus: document.getElementById("camStatus"),
     camOnBtn: document.getElementById("camOnBtn"),
-    camOffBtn: document.getElementById("camOffBtn"),
+    camOffBtn: document.getElementById("camOffBtn"),,
+    camSelect: document.getElementById("camSelect"),
+    camRefreshBtn: document.getElementById("camRefreshBtn"),
   };
 
   const clamp = function(v, min, max) { return Math.max(min, Math.min(max, v)); };
@@ -684,6 +686,7 @@ PhysicsEngine.prototype.update = function() {
     const t = now();
     const dt = clamp(t - this._lastT, 8, 33);
     this._lastT = t;
+    state.dt = dt;
     Matter.Engine.update(this.engine, dt);
   }
 }
@@ -952,6 +955,14 @@ PhysicsEngine.prototype.update = function() {
     this.faceVideos = Array.from(document.querySelectorAll(".camVideo"));
   };
 
+CameraManager.prototype.listCameras = function() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return Promise.resolve([]);
+  return navigator.mediaDevices.enumerateDevices().then(function(devs) {
+    return devs.filter(function(d) { return d.kind === 'videoinput'; });
+  });
+};
+
+
   CameraManager.prototype.start = function(deviceIdExact) {
     var self = this;
     if (this.stream) {
@@ -977,6 +988,7 @@ PhysicsEngine.prototype.update = function() {
     },
     audio: false
   };
+  if (!constraints.video.deviceId) delete constraints.video.deviceId;
   if (!constraints.video.deviceId) delete constraints.video.deviceId;
 
     return navigator.mediaDevices.getUserMedia(constraints)
@@ -1183,7 +1195,7 @@ var CubeController = function() {
     window.cubeApi = {
       triggerEvent: function(key) { self.triggerEvent(key); },
       reset: function() { self.reset(); },
-      camOn: function() { return self.cam.start(); },
+      camOn: function() { return self.cam.start(el.camSelect ? (el.camSelect.value || null) : null); },
       camOff: function() { self.cam.stop(); },
     };
   };
@@ -1310,7 +1322,7 @@ var CubeController = function() {
           break;
 
         case "camOn":
-          self.cam.start();
+          self.cam.start(el.camSelect ? (el.camSelect.value || null) : null);
           break;
 
         case "camOff":
