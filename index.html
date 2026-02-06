@@ -1,310 +1,285 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Cubo 3D - Câmera Direta</title>
+
   <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+
   <style>
-:root{
-  --size: 160px;
-  --accent: #2ea7ff;
-  --outer: 3.2px;
-  --inset: 6px;
-  --uiBg: rgba(10, 12, 18, 0.85);
-  --sweepDur: 560ms;
-  --sweepLoops: 3;
-}
+    :root{
+      --size: 160px;
+      --accent: #2ea7ff;
+      --outer: 3.2px;
+      --inset: 6px;
+      --uiBg: rgba(10, 12, 18, 0.85);
+      --sweepDur: 560ms;
+      --sweepLoops: 3;
+    }
+    *{ box-sizing:border-box; margin:0; padding:0; }
+    body{
+      margin:0;
+      background:transparent;
+      overflow:hidden;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      text-rendering: optimizeLegibility;
+    }
 
-*{ box-sizing:border-box; margin:0; padding:0; }
-body{
-  margin:0;
-  background:transparent;
-  overflow:hidden;
-  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  text-rendering: optimizeLegibility;
-}
+    #stage{
+      position:relative;
+      width:100vw;
+      height:100vh;
+      perspective:1200px;
+      overflow:hidden;
+      transform: translateZ(0);
+    }
+    #rig{
+      position:absolute;
+      left:0; top:0;
+      transform-style:preserve-3d;
+      will-change:transform;
+      pointer-events:none;
+      backface-visibility:hidden;
+      -webkit-backface-visibility:hidden;
+      transform: translateZ(0);
+    }
 
-#stage{
-  position:relative;
-  width:100vw;
-  height:100vh;
-  perspective:1200px;
-  overflow:hidden;
-  transform: translateZ(0);
-}
+    #cube{
+      position:relative;
+      width:var(--size);
+      height:var(--size);
+      transform-style:preserve-3d;
+      transition: width .25s ease, height .25s ease;
+      backface-visibility:hidden;
+      -webkit-backface-visibility:hidden;
+      transform: translateZ(0);
+    }
+    #cube.draggable{ pointer-events:auto; cursor:grab; }
+    #cube.dragging{ cursor:grabbing; }
 
-#rig{
-  position:absolute;
-  left:0;
-  top:0;
-  transform-style:preserve-3d;
-  will-change:transform;
-  pointer-events:none;
-  backface-visibility: hidden;
-  -webkit-backface-visibility: hidden;
-  transform: translateZ(0);
-}
+    .face{
+      position:absolute;
+      width:var(--size);
+      height:var(--size);
+      backface-visibility:visible;
+      background: rgba(10, 12, 18, 0.55);
+      border: 1px solid rgba(255,255,255,0.06);
+      transition: width .25s ease, height .25s ease;
+      transform: translateZ(0);
+    }
+    .face-front{ transform: rotateY(0deg) translateZ(calc(var(--size)/2)); }
+    .face-back{ transform: rotateY(180deg) translateZ(calc(var(--size)/2)); }
+    .face-right{ transform: rotateY(90deg) translateZ(calc(var(--size)/2)); }
+    .face-left{ transform: rotateY(-90deg) translateZ(calc(var(--size)/2)); }
+    .face-top{ transform: rotateX(90deg) translateZ(calc(var(--size)/2)); }
+    .face-bottom{ transform: rotateX(-90deg) translateZ(calc(var(--size)/2)); }
 
-#cube{
-  position:relative;
-  width:var(--size);
-  height:var(--size);
-  transform-style:preserve-3d;
-  transition:width .25s ease, height .25s ease;
-  backface-visibility: hidden;
-  -webkit-backface-visibility: hidden;
-  transform: translateZ(0);
-}
-#cube.draggable{ pointer-events:auto; cursor:grab; }
-#cube.dragging{ cursor:grabbing; }
+    .face-content{ position:relative; width:100%; height:100%; overflow:hidden; }
+    .camSlot{
+      position:absolute;
+      inset:var(--inset);
+      overflow:hidden;
+      z-index:1;
+      border-radius:7px;
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.07);
+    }
+    .camMock, .camVideo{
+      width:100%;
+      height:100%;
+      object-fit:cover;
+      display:block;
+    }
+    .camVideo{
+      position:absolute;
+      inset:0;
+      opacity:0;
+    }
+    body.hasCam .camVideo{ opacity:1; }
+    body.hasCam .camMock{ opacity:0; }
 
-.face{
-  position:absolute;
-  width:var(--size);
-  height:var(--size);
-  backface-visibility:visible;
-  background: rgba(10, 12, 18, 0.55);
-  border: 1px solid rgba(255,255,255,0.06);
-  transition:width .25s ease, height .25s ease;
-  transform: translateZ(0);
-}
+    .frameSvg{
+      position:absolute;
+      inset:0;
+      width:100%;
+      height:100%;
+      z-index:6;
+      pointer-events:none;
+      filter: drop-shadow(0 0 2px rgba(0,0,0,.35));
+      shape-rendering: geometricPrecision;
+      -webkit-transform: translateZ(0);
+      transform: translateZ(0);
+      backface-visibility:hidden;
+      -webkit-backface-visibility:hidden;
+      will-change: transform;
+    }
+    .frameSvg path{
+      fill:none;
+      vector-effect: non-scaling-stroke;
+      shape-rendering: geometricPrecision;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
 
-.face-front  { transform: rotateY(0deg)   translateZ(calc(var(--size)/2)); }
-.face-back   { transform: rotateY(180deg) translateZ(calc(var(--size)/2)); }
-.face-right  { transform: rotateY(90deg)  translateZ(calc(var(--size)/2)); }
-.face-left   { transform: rotateY(-90deg) translateZ(calc(var(--size)/2)); }
-.face-top    { transform: rotateX(90deg)  translateZ(calc(var(--size)/2)); }
-.face-bottom { transform: rotateX(-90deg) translateZ(calc(var(--size)/2)); }
+    .baseOuter{
+      stroke: var(--accent);
+      stroke-width: var(--outer);
+      opacity: .92;
+      filter: drop-shadow(0 0 1.8px color-mix(in srgb, var(--accent) 65%, transparent));
+      transition: stroke .12s linear, opacity .12s linear, filter .12s linear;
+    }
+    .sweepOuter{
+      stroke: rgba(255,255,255,.95);
+      stroke-width: calc(var(--outer) * 0.75);
+      opacity: 0;
+      filter: drop-shadow(0 0 8px rgba(255,255,255,.28));
+    }
 
-.face-content{
-  position:relative;
-  width:100%;
-  height:100%;
-  overflow:hidden;
-}
+    @keyframes sweepMove{
+      from { stroke-dashoffset: var(--dashFrom, 0); }
+      to   { stroke-dashoffset: var(--dashTo, -1000); }
+    }
+    #cube.sweep .sweepOuter{
+      opacity: 1;
+      animation: sweepMove var(--sweepDur) linear var(--sweepLoops);
+    }
 
-.camSlot{
-  position:absolute;
-  inset:var(--inset);
-  overflow:hidden;
-  z-index:1;
-  border-radius:7px;
-  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.07);
-}
+    @keyframes neonPulse{
+      0%{
+        filter: drop-shadow(0 0 2px rgba(0,0,0,.35))
+                drop-shadow(0 0 6px color-mix(in srgb, var(--accent) 50%, transparent));
+      }
+      50%{
+        filter: drop-shadow(0 0 2px rgba(0,0,0,.35))
+                drop-shadow(0 0 14px color-mix(in srgb, var(--accent) 70%, transparent));
+      }
+      100%{
+        filter: drop-shadow(0 0 2px rgba(0,0,0,.35))
+                drop-shadow(0 0 6px color-mix(in srgb, var(--accent) 50%, transparent));
+      }
+    }
+    body.neon .frameSvg{ animation: neonPulse 0.9s ease-in-out infinite; }
 
-.camMock, .camVideo{
-  width:100%;
-  height:100%;
-  object-fit:cover;
-  display:block;
-}
-.camVideo{
-  position:absolute;
-  inset:0;
-  opacity:0;
-}
-body.hasCam .camVideo{ opacity:1; }
-body.hasCam .camMock{ opacity:0; }
+    #ui{
+      position:fixed;
+      top:0; left:0; right:0;
+      min-height:42px;
+      display:flex;
+      align-items:center;
+      gap:6px;
+      padding:6px 10px;
+      background:var(--uiBg);
+      backdrop-filter: blur(8px);
+      z-index:9999;
+      border-bottom:1px solid rgba(255,255,255,.1);
+      overflow-x:auto;
+      flex-wrap:wrap;
+    }
+    #ui button{
+      background: rgba(255,255,255,.08);
+      color:#fff;
+      border:1px solid rgba(255,255,255,.16);
+      padding:6px 10px;
+      border-radius:8px;
+      cursor:pointer;
+      font-size:11px;
+      font-weight:600;
+      white-space:nowrap;
+      transition: transform .12s ease, background .12s ease, border-color .12s ease;
+    }
+    #ui button:hover{
+      background: rgba(255,255,255,.14);
+      transform: translateY(-1px);
+      border-color: color-mix(in srgb, var(--accent) 45%, rgba(255,255,255,.18));
+    }
+    #ui button:active{ transform: scale(.97); }
+    #ui button.success{ background: rgba(0,255,0,.2); border-color: rgba(0,255,0,.4); }
+    #ui button.error{ background: rgba(255,0,0,.2); border-color: rgba(255,0,0,.4); }
+    #ui button.icon{ padding:6px 8px; }
 
-.frameSvg{
-  position:absolute;
-  inset:0;
-  width:100%;
-  height:100%;
-  z-index:6;
-  pointer-events:none;
-  filter: drop-shadow(0 0 2px rgba(0,0,0,.35));
-  shape-rendering: geometricPrecision;
-  -webkit-transform: translateZ(0);
-  transform: translateZ(0);
-  backface-visibility: hidden;
-  -webkit-backface-visibility: hidden;
-  will-change: transform;
-}
+    #ui label{
+      color:#fff;
+      font-size:11px;
+      display:flex;
+      align-items:center;
+      gap:4px;
+      white-space:nowrap;
+    }
+    #ui input[type="number"]{
+      background:#000;
+      color:#fff;
+      border:1px solid rgba(255,255,255,.18);
+      width:60px;
+      padding:4px 6px;
+      border-radius:6px;
+      font-size:11px;
+      text-align:center;
+    }
+    #ui input[type="number"]:focus{
+      outline:none;
+      border-color: color-mix(in srgb, var(--accent) 55%, rgba(255,255,255,.18));
+    }
+    #ui input[type="range"]{
+      width:80px;
+      height:4px;
+      background: rgba(255,255,255,.18);
+      border-radius:2px;
+      outline:none;
+      cursor:pointer;
+    }
+    #ui input[type="range"]::-webkit-slider-thumb{
+      appearance:none;
+      width:12px;
+      height:12px;
+      background: var(--accent);
+      border-radius:50%;
+      cursor:pointer;
+    }
+    #ui input[type="range"]::-moz-range-thumb{
+      width:12px;
+      height:12px;
+      background: var(--accent);
+      border-radius:50%;
+      border:none;
+    }
 
-.frameSvg path{
-  fill:none;
-  vector-effect: non-scaling-stroke;
-  shape-rendering: geometricPrecision;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
+    #rotXValue, #rotYValue, #rotZValue{
+      color: color-mix(in srgb, var(--accent) 80%, #fff 20%);
+      font-weight:800;
+      min-width:32px;
+      text-align:center;
+      display:inline-block;
+    }
+    .sep{
+      width:1px;
+      height:16px;
+      background: rgba(255,255,255,.18);
+      margin:0 4px;
+      flex-shrink:0;
+    }
+    #camStatus{
+      color:#0f0;
+      font-size:10px;
+      padding:4px 8px;
+      background:rgba(0,0,0,.4);
+      border-radius:6px;
+      max-width:200px;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space:nowrap;
+    }
+    #camStatus.error{ color:#f00; }
+    #camStatus.info{ color:#ff0; }
 
-.baseOuter{
-  stroke: var(--accent);
-  stroke-width: var(--outer);
-  opacity: .92;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  filter: drop-shadow(0 0 1.8px color-mix(in srgb, var(--accent) 65%, transparent));
-  transition: stroke .12s linear, opacity .12s linear, filter .12s linear;
-  shape-rendering: geometricPrecision;
-}
-
-.sweepOuter{
-  stroke: rgba(255,255,255,.95);
-  stroke-width: calc(var(--outer) * 0.75);
-  opacity: 0;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  filter: drop-shadow(0 0 8px rgba(255,255,255,.28));
-  shape-rendering: geometricPrecision;
-}
-
-@keyframes sweepMove {
-  from { stroke-dashoffset: var(--dashFrom, 0); }
-  to   { stroke-dashoffset: var(--dashTo, -1000); }
-}
-
-#cube.sweep .sweepOuter{
-  opacity: 1;
-  animation: sweepMove var(--sweepDur) linear var(--sweepLoops);
-}
-
-@keyframes neonPulse {
-  0%   { filter: drop-shadow(0 0 2px rgba(0,0,0,.35)) drop-shadow(0 0 6px color-mix(in srgb, var(--accent) 50%, transparent)); }
-  50%  { filter: drop-shadow(0 0 2px rgba(0,0,0,.35)) drop-shadow(0 0 14px color-mix(in srgb, var(--accent) 70%, transparent)); }
-  100% { filter: drop-shadow(0 0 2px rgba(0,0,0,.35)) drop-shadow(0 0 6px color-mix(in srgb, var(--accent) 50%, transparent)); }
-}
-body.neon .frameSvg{
-  animation: neonPulse 0.9s ease-in-out infinite;
-}
-
-#ui{
-  position:fixed;
-  top:0; left:0; right:0;
-  min-height:42px;
-  display:flex;
-  align-items:center;
-  gap:6px;
-  padding:6px 10px;
-  background:var(--uiBg);
-  backdrop-filter: blur(8px);
-  z-index:9999;
-  border-bottom:1px solid rgba(255,255,255,.1);
-  overflow-x:auto;
-  flex-wrap:wrap;
-}
-
-#ui button{
-  background: rgba(255,255,255,.08);
-  color:#fff;
-  border:1px solid rgba(255,255,255,.16);
-  padding:6px 10px;
-  border-radius:8px;
-  cursor:pointer;
-  font-size:11px;
-  font-weight:600;
-  white-space:nowrap;
-  transition: transform .12s ease, background .12s ease, border-color .12s ease;
-}
-#ui button:hover{
-  background: rgba(255,255,255,.14);
-  transform: translateY(-1px);
-  border-color: color-mix(in srgb, var(--accent) 45%, rgba(255,255,255,.18));
-}
-#ui button:active{ transform: scale(.97); }
-
-#ui button.success{
-  background: rgba(0,255,0,.2);
-  border-color: rgba(0,255,0,.4);
-}
-
-#ui button.error{
-  background: rgba(255,0,0,.2);
-  border-color: rgba(255,0,0,.4);
-}
-
-#ui label{
-  color:#fff;
-  font-size:11px;
-  display:flex;
-  align-items:center;
-  gap:4px;
-  white-space:nowrap;
-}
-
-#ui input[type="number"]{
-  background:#000;
-  color:#fff;
-  border:1px solid rgba(255,255,255,.18);
-  width:60px;
-  padding:4px 6px;
-  border-radius:6px;
-  font-size:11px;
-  text-align:center;
-}
-#ui input[type="number"]:focus{
-  outline:none;
-  border-color: color-mix(in srgb, var(--accent) 55%, rgba(255,255,255,.18));
-}
-
-#ui input[type="range"]{
-  width:80px;
-  height:4px;
-  background: rgba(255,255,255,.18);
-  border-radius:2px;
-  outline:none;
-  cursor:pointer;
-}
-#ui input[type="range"]::-webkit-slider-thumb{
-  appearance:none;
-  width:12px; height:12px;
-  background: var(--accent);
-  border-radius:50%;
-  cursor:pointer;
-}
-#ui input[type="range"]::-moz-range-thumb{
-  width:12px; height:12px;
-  background: var(--accent);
-  border-radius:50%;
-  border:none;
-}
-
-#rotXValue,#rotYValue,#rotZValue{
-  color: color-mix(in srgb, var(--accent) 80%, #fff 20%);
-  font-weight:800;
-  min-width:32px;
-  text-align:center;
-}
-
-.sep{
-  width:1px;
-  height:16px;
-  background: rgba(255,255,255,.18);
-  margin:0 4px;
-  flex-shrink:0;
-}
-
-#camStatus{
-  color:#0f0;
-  font-size:10px;
-  padding:4px 8px;
-  background:rgba(0,0,0,.4);
-  border-radius:6px;
-  max-width:200px;
-  overflow:hidden;
-  text-overflow:ellipsis;
-  white-space:nowrap;
-}
-
-#camStatus.error{
-  color:#f00;
-}
-
-#camStatus.info{
-  color:#ff0;
-}
-
-@media (max-width:768px){
-  #ui{ padding:6px 10px; }
-  #ui button{ font-size:10px; padding:4px 8px; }
-}
+    @media (max-width:768px){
+      #ui{ padding:6px 10px; }
+      #ui button{ font-size:10px; padding:4px 8px; }
+    }
   </style>
 </head>
+
 <body>
   <div id="stage">
     <div id="rig">
@@ -312,7 +287,7 @@ body.neon .frameSvg{
         <div class="face face-front">
           <div class="face-content">
             <div class="camSlot">
-              <img class="camMock" src="https://via.placeholder.com/400x400/1a1d2e/ffffff?text=Front" alt="Front">
+              <img class="camMock" src="https://via.placeholder.com/400x400/1a1d2e/ffffff?text=Front" alt="Front" />
               <video class="camVideo" autoplay playsinline muted></video>
             </div>
             <svg class="frameSvg" viewBox="0 0 160 160" width="160" height="160">
@@ -325,7 +300,7 @@ body.neon .frameSvg{
         <div class="face face-back">
           <div class="face-content">
             <div class="camSlot">
-              <img class="camMock" src="https://via.placeholder.com/400x400/1a1d2e/ffffff?text=Back" alt="Back">
+              <img class="camMock" src="https://via.placeholder.com/400x400/1a1d2e/ffffff?text=Back" alt="Back" />
               <video class="camVideo" autoplay playsinline muted></video>
             </div>
             <svg class="frameSvg" viewBox="0 0 160 160" width="160" height="160">
@@ -338,7 +313,7 @@ body.neon .frameSvg{
         <div class="face face-right">
           <div class="face-content">
             <div class="camSlot">
-              <img class="camMock" src="https://via.placeholder.com/400x400/1a1d2e/ffffff?text=Right" alt="Right">
+              <img class="camMock" src="https://via.placeholder.com/400x400/1a1d2e/ffffff?text=Right" alt="Right" />
               <video class="camVideo" autoplay playsinline muted></video>
             </div>
             <svg class="frameSvg" viewBox="0 0 160 160" width="160" height="160">
@@ -351,7 +326,7 @@ body.neon .frameSvg{
         <div class="face face-left">
           <div class="face-content">
             <div class="camSlot">
-              <img class="camMock" src="https://via.placeholder.com/400x400/1a1d2e/ffffff?text=Left" alt="Left">
+              <img class="camMock" src="https://via.placeholder.com/400x400/1a1d2e/ffffff?text=Left" alt="Left" />
               <video class="camVideo" autoplay playsinline muted></video>
             </div>
             <svg class="frameSvg" viewBox="0 0 160 160" width="160" height="160">
@@ -364,7 +339,7 @@ body.neon .frameSvg{
         <div class="face face-top">
           <div class="face-content">
             <div class="camSlot">
-              <img class="camMock" src="https://via.placeholder.com/400x400/1a1d2e/ffffff?text=Top" alt="Top">
+              <img class="camMock" src="https://via.placeholder.com/400x400/1a1d2e/ffffff?text=Top" alt="Top" />
               <video class="camVideo" autoplay playsinline muted></video>
             </div>
             <svg class="frameSvg" viewBox="0 0 160 160" width="160" height="160">
@@ -377,7 +352,7 @@ body.neon .frameSvg{
         <div class="face face-bottom">
           <div class="face-content">
             <div class="camSlot">
-              <img class="camMock" src="https://via.placeholder.com/400x400/1a1d2e/ffffff?text=Bottom" alt="Bottom">
+              <img class="camMock" src="https://via.placeholder.com/400x400/1a1d2e/ffffff?text=Bottom" alt="Bottom" />
               <video class="camVideo" autoplay playsinline muted></video>
             </div>
             <svg class="frameSvg" viewBox="0 0 160 160" width="160" height="160">
@@ -391,966 +366,1031 @@ body.neon .frameSvg{
   </div>
 
   <div id="ui">
-    <button data-act="drop">⬇️ Soltar</button>
-    <button data-act="bounce">⬆️ Pular</button>
-    <button data-act="reset">🔄 Reset</button>
+    <button data-act="drop">Soltar</button>
+    <button data-act="bounce">Pular</button>
+    <button data-act="reset">Reset</button>
 
     <div class="sep"></div>
 
     <label>
-      X: <input type="range" id="rotationX" min="-100" max="100" value="78" step="1">
-      <span id="rotXValue">78°</span>
+      X <input type="range" id="rotationX" min="-100" max="100" value="78" step="1" />
+      <span id="rotXValue">78</span>
     </label>
-
     <label>
-      Y: <input type="range" id="rotationY" min="-100" max="100" value="5" step="1">
-      <span id="rotYValue">5°</span>
+      Y <input type="range" id="rotationY" min="-100" max="100" value="5" step="1" />
+      <span id="rotYValue">5</span>
     </label>
-
     <label>
-      Z: <input type="range" id="rotationZ" min="-100" max="100" value="-41" step="1">
-      <span id="rotZValue">-41°</span>
+      Z <input type="range" id="rotationZ" min="-100" max="100" value="-41" step="1" />
+      <span id="rotZValue">-41</span>
     </label>
 
     <div class="sep"></div>
 
     <label>
-      Tamanho:
-      <input type="number" id="cubeSizeInput" min="100" max="500" step="10" value="160">
+      Tamanho <input type="number" id="cubeSizeInput" min="100" max="500" step="10" value="160" />
     </label>
-    <button data-act="applySize">✔️</button>
+    <button data-act="applySize">Aplicar</button>
 
     <div class="sep"></div>
 
-    <button data-act="camOn" id="camOnBtn">📷 Ativar</button>
-    <button data-act="camOff" id="camOffBtn" disabled>❌ Parar</button>
-      <select id="camSelect" title="Escolher câmera"></select>
-      <button id="camRefreshBtn" class="icon" type="button" title="Atualizar lista">↻</button>
+    <button data-act="camOn" id="camOnBtn">Ativar</button>
+    <button data-act="camOff" id="camOffBtn" disabled>Parar</button>
+    <select id="camSelect" title="Escolher câmera"></select>
+    <button id="camRefreshBtn" class="icon" type="button" title="Atualizar lista">↻</button>
     <span id="camStatus"></span>
 
     <div class="sep"></div>
 
-    <button data-evt="twitch.sub">💛 Sub</button>
-    <button data-evt="twitch.giftsub">💙 Gift</button>
-    <button data-evt="twitch.bits">💜 Bits</button>
-    <button data-evt="youtube.member">⭐ Member</button>
-    <button data-evt="youtube.superchat">💰 Super</button>
-    <button data-evt="twitch.donate">💚 Donate</button>
+    <button data-evt="twitch.sub">Sub</button>
+    <button data-evt="twitch.giftsub">Gift</button>
+    <button data-evt="twitch.bits">Bits</button>
+    <button data-evt="youtube.member">Member</button>
+    <button data-evt="youtube.superchat">Super</button>
+    <button data-evt="twitch.donate">Donate</button>
   </div>
 
   <video id="camSource" autoplay playsinline muted style="display:none"></video>
 
   <script>
-(function() {
-  "use strict";
-
-  const CONFIG = {
-    size: 160,
-    physics: {
-      gravity: 1.2,
-      restitution: 0.40,
-      friction: 0.7,
-      density: 0.006,
-      bounceForceY: 0.65,
-      bounceForceXMin: 0.25,
-      bounceForceXMax: 0.55,
-      dropVelocity: 0.2,
-      initialX: 200,
-      initialY: 180,
-      margin: { top: 80, sides: 80, bottom: 60 },
-    },
-
-    themes: {
-      "twitch.sub":       { color: "#ffd400", neon: false },
-      "twitch.giftsub":   { color: "#2ea7ff", neon: false },
-      "twitch.bits":      { color: "#9146ff", neon: false },
-      "twitch.follow":    { color: "#ff0000", neon: false },
-      "twitch.donate":    { color: "#00ff00", neon: false },
-
-      "youtube.member":     { color: "#f8ff3b", neon: true },
-      "youtube.membergift": { color: "#f8ff3b", neon: true },
-      "youtube.superchat":  { color: "#2ea7ff", neon: true },
-      "youtube.follow":     { color: "#ff0000", neon: true },
-      "youtube.donate":     { color: "#00ff00", neon: true },
-    },
-
-    fx: {
-      minIntervalMs: 110,
-      neonHoldMs: 1800,
-      sweepHoldMs: 1200,
-      loops: 3,
-      durMs: 560,
-      segRatio: 0.14,
-    },
-
-    spin3d: {
-      damping: 0.96,
-      stopW: 0.0003,
-      stopV: 0.01,
-      dropKick: 0.06,
-      bounceKick: 0.15,
-      collisionKick: 0.08,
-      maxW: 0.30,
-      axisVariation: 0.7,
-    }
-  };
-
-  const state = {
-    isFrozen: true,
-    lastCornerPosition: { x: CONFIG.physics.initialX, y: CONFIG.physics.initialY },
-    rotation: { x: 78, y: 5, z: -41 },
-    dragging: { active: false, startX: 0, startY: 0, offsetX: 0, offsetY: 0 },
-    lastFxAt: 0,
-    neonTimer: null,
-    sweepTimer: null,
-    running: true,
-    spin: {
-      q: [1, 0, 0, 0],
-      w: [0, 0, 0],
-      lastV: [0, 0],
-    }
-  };
-
-  const el = {
-    root: document.documentElement,
-    body: document.body,
-    cube: document.getElementById("cube"),
-    rig: document.getElementById("rig"),
-    ui: document.getElementById("ui"),
-    sizeInput: document.getElementById("cubeSizeInput"),
-    rotationX: document.getElementById("rotationX"),
-    rotationY: document.getElementById("rotationY"),
-    rotationZ: document.getElementById("rotationZ"),
-    rotXValue: document.getElementById("rotXValue"),
-    rotYValue: document.getElementById("rotYValue"),
-    rotZValue: document.getElementById("rotZValue"),
-    camSource: document.getElementById("camSource"),
-    camStatus: document.getElementById("camStatus"),
-    camOnBtn: document.getElementById("camOnBtn"),
-    camOffBtn: document.getElementById("camOffBtn"),
-  };
-
-  const clamp = function(v, min, max) { return Math.max(min, Math.min(max, v)); };
-  const now = function() { return performance.now(); };
-
-  function setStatus(msg, type) {
-    el.camStatus.textContent = msg;
-    el.camStatus.className = "";
-    if (type === "error") {
-      el.camStatus.classList.add("error");
-    } else if (type === "info") {
-      el.camStatus.classList.add("info");
-    }
-  }
-
-  function uiSyncRotation() {
-    el.rotationX.value = String(state.rotation.x);
-    el.rotationY.value = String(state.rotation.y);
-    el.rotationZ.value = String(state.rotation.z);
-    el.rotXValue.textContent = state.rotation.x + "°";
-    el.rotYValue.textContent = state.rotation.y + "°";
-    el.rotZValue.textContent = state.rotation.z + "°";
-  }
-
-  function qNormalize(q) {
-    const w = q[0], x = q[1], y = q[2], z = q[3];
-    const n = Math.hypot(w,x,y,z) || 1;
-    return [w/n, x/n, y/n, z/n];
-  }
-
-  function qMul(a, b) {
-    const aw = a[0], ax = a[1], ay = a[2], az = a[3];
-    const bw = b[0], bx = b[1], by = b[2], bz = b[3];
-    return [
-      aw*bw - ax*bx - ay*by - az*bz,
-      aw*bx + ax*bw + ay*bz - az*by,
-      aw*by - ax*bz + ay*bw + az*bx,
-      aw*bz + ax*by - ay*bx + az*bw
-    ];
-  }
-
-  function qFromAxisAngle(ax, ay, az, ang) {
-    const half = ang * 0.5;
-    const s = Math.sin(half);
-    const n = Math.hypot(ax, ay, az) || 1;
-    return [Math.cos(half), (ax/n)*s, (ay/n)*s, (az/n)*s];
-  }
-
-  function qFromEuler(rx, ry, rz) {
-    const cx = Math.cos(rx/2), sx = Math.sin(rx/2);
-    const cy = Math.cos(ry/2), sy = Math.sin(ry/2);
-    const cz = Math.cos(rz/2), sz = Math.sin(rz/2);
-    const w = cx*cy*cz - sx*sy*sz;
-    const x = sx*cy*cz + cx*sy*sz;
-    const y = cx*sy*cz - sx*cy*sz;
-    const z = cx*cy*sz + sx*sy*cz;
-    return [w,x,y,z];
-  }
-
-  function qToAxisAngle(q) {
-    const qq = qNormalize(q);
-    let w = qq[0], x = qq[1], y = qq[2], z = qq[3];
-    w = clamp(w, -1, 1);
-    const ang = 2 * Math.acos(w);
-    const s = Math.sqrt(1 - w*w);
-    if (s < 0.00001 || !isFinite(s)) {
-      return { ax: 1, ay: 0, az: 0, ang: 0 };
-    }
-    return { ax: x/s, ay: y/s, az: z/s, ang: ang };
-  }
-
-  function randomUnitVec3() {
-    const u = Math.random() * 2 - 1;
-    const t = Math.random() * Math.PI * 2;
-    const r = Math.sqrt(1 - u*u);
-    return [r*Math.cos(t), u, r*Math.sin(t)];
-  }
-
-  function randomVariedVec3() {
-    const base = randomUnitVec3();
-    const variation = CONFIG.spin3d.axisVariation;
-    return [
-      base[0] * (1 + (Math.random() - 0.5) * variation),
-      base[1] * (1 + (Math.random() - 0.5) * variation),
-      base[2] * (1 + (Math.random() - 0.5) * variation)
-    ];
-  }
-
-  var PhysicsEngine = function(onCollisionKick) {
-    this.engine = Matter.Engine.create();
-    this.engine.gravity.y = CONFIG.physics.gravity;
-
-    this.cubeBody = Matter.Bodies.rectangle(
-      CONFIG.physics.initialX,
-      CONFIG.physics.initialY,
-      CONFIG.size,
-      CONFIG.size,
-      {
-        restitution: CONFIG.physics.restitution,
-        friction: CONFIG.physics.friction,
-        density: CONFIG.physics.density,
-        isStatic: true,
-      }
-    );
-
-    this.walls = [];
-    this.createWalls();
-    Matter.World.add(this.engine.world, [this.cubeBody]);
-
-    var self = this;
-    Matter.Events.on(this.engine, "collisionStart", function(ev) {
-      if (state.isFrozen) return;
-      if (typeof onCollisionKick === "function") onCollisionKick(ev);
-    });
-  };
-
-  PhysicsEngine.prototype.createWalls = function() {
-    const top = CONFIG.physics.margin.top;
-    const sides = CONFIG.physics.margin.sides;
-    const bottom = CONFIG.physics.margin.bottom;
-    const thickness = 100;
-    const halfT = thickness / 2;
-
-    if (this.walls.length) {
-      Matter.World.remove(this.engine.world, this.walls);
-      this.walls.length = 0;
-    }
-
-    const floorY = window.innerHeight - bottom + halfT;
-    const ceilY  = top - halfT;
-    const leftX  = sides - halfT;
-    const rightX = window.innerWidth - sides + halfT;
-
-    this.walls.push(
-      Matter.Bodies.rectangle(window.innerWidth / 2, floorY, window.innerWidth * 2, thickness, { isStatic: true }),
-      Matter.Bodies.rectangle(window.innerWidth / 2, ceilY,  window.innerWidth * 2, thickness, { isStatic: true }),
-      Matter.Bodies.rectangle(leftX,  window.innerHeight / 2, thickness, window.innerHeight * 2, { isStatic: true }),
-      Matter.Bodies.rectangle(rightX, window.innerHeight / 2, thickness, window.innerHeight * 2, { isStatic: true })
-    );
-
-    Matter.World.add(this.engine.world, this.walls);
-  };
-
-PhysicsEngine.prototype.update = function() {
-  if (!state.isFrozen) {
-    if (!this._lastT) this._lastT = now();
-    const t = now();
-    const dt = clamp(t - this._lastT, 8, 33);
-    this._lastT = t;
-    Matter.Engine.update(this.engine, dt);
-  }
-}
-
-
-  PhysicsEngine.prototype.freeze = function() {
-    Matter.Body.setStatic(this.cubeBody, true);
-    Matter.Body.setVelocity(this.cubeBody, { x: 0, y: 0 });
-    Matter.Body.setAngularVelocity(this.cubeBody, 0);
-    state.isFrozen = true;
-  };
-
-  PhysicsEngine.prototype.drop = function() {
-    Matter.Body.setStatic(this.cubeBody, false);
-    state.isFrozen = false;
-    Matter.Body.setVelocity(this.cubeBody, { x: 0, y: 0 });
-    Matter.Body.setAngle(this.cubeBody, 0);
-    Matter.Body.setAngularVelocity(this.cubeBody, CONFIG.physics.dropVelocity);
-  };
-
-  PhysicsEngine.prototype.bounce = function() {
-    if (state.isFrozen) return;
-    const xMin = CONFIG.physics.bounceForceXMin;
-    const xMax = CONFIG.physics.bounceForceXMax;
-    const randomXMagnitude = xMin + Math.random() * (xMax - xMin);
-    const randomXDirection = Math.random() < 0.5 ? -1 : 1;
-    const randomXForce = randomXMagnitude * randomXDirection;
-    const upForce = -CONFIG.physics.bounceForceY;
-
-    Matter.Body.applyForce(this.cubeBody, this.cubeBody.position, {
-      x: randomXForce,
-      y: upForce
-    });
-
-    const current = this.cubeBody.angularVelocity;
-    const randomRot = (Math.random() - 0.5) * 0.8;
-    Matter.Body.setAngularVelocity(this.cubeBody, current + randomRot);
-  };
-
-  PhysicsEngine.prototype.resetToInitial = function() {
-    this.freeze();
-    const target = { x: CONFIG.physics.initialX, y: CONFIG.physics.initialY };
-    Matter.Body.setPosition(this.cubeBody, target);
-    Matter.Body.setVelocity(this.cubeBody, { x: 0, y: 0 });
-    Matter.Body.setAngularVelocity(this.cubeBody, 0);
-    Matter.Body.setAngle(this.cubeBody, 0);
-    state.rotation.x = 78;
-    state.rotation.y = 5;
-    state.rotation.z = -41;
-    uiSyncRotation();
-  };
-
-  PhysicsEngine.prototype.setPosition = function(x, y) {
-    if (!state.isFrozen) return;
-    Matter.Body.setPosition(this.cubeBody, { x: x, y: y });
-    state.lastCornerPosition = { x: x, y: y };
-  };
-
-  PhysicsEngine.prototype.updateSize = function(newSize) {
-    const currentPos = this.cubeBody.position;
-    const wasStatic = this.cubeBody.isStatic;
-    Matter.World.remove(this.engine.world, this.cubeBody);
-
-    this.cubeBody = Matter.Bodies.rectangle(
-      currentPos.x,
-      currentPos.y,
-      newSize,
-      newSize,
-      {
-        restitution: CONFIG.physics.restitution,
-        friction: CONFIG.physics.friction,
-        density: CONFIG.physics.density,
-        isStatic: wasStatic,
-      }
-    );
-
-    Matter.World.add(this.engine.world, this.cubeBody);
-  };
-
-  PhysicsEngine.prototype.getPosition = function() { return this.cubeBody.position; };
-  PhysicsEngine.prototype.getVelocity = function() { return this.cubeBody.velocity; };
-
-  var VisualManager = function() {
-    this.lastTransform = "";
-    this.applySize(CONFIG.size);
-    this.preparePaths();
-  };
-
-  VisualManager.prototype.applySize = function(newSize) {
-    CONFIG.size = newSize;
-    el.root.style.setProperty("--size", newSize + "px");
-
-    const outer = parseFloat(getComputedStyle(el.root).getPropertyValue("--outer")) || 3.2;
-    const s = newSize;
-    const d = "M " + (outer/2) + " " + (outer/2) + " H " + (s - outer/2) + " V " + (s - outer/2) + " H " + (outer/2) + " Z";
-
-    var svgs = document.querySelectorAll(".frameSvg");
-    for (var i = 0; i < svgs.length; i++) {
-      var svg = svgs[i];
-      svg.setAttribute("viewBox", "0 0 " + s + " " + s);
-      svg.setAttribute("width", s);
-      svg.setAttribute("height", s);
-
-      const base = svg.querySelector(".baseOuter");
-      const sweep = svg.querySelector(".sweepOuter");
-
-      if (base) base.setAttribute("d", d);
-      if (sweep) sweep.setAttribute("d", d);
-    }
-
-    this.preparePaths();
-  };
-
-  VisualManager.prototype.preparePaths = function() {
-    var paths = document.querySelectorAll(".sweepOuter");
-    for (var i = 0; i < paths.length; i++) {
-      paths[i].style.strokeDasharray = "0 1000";
-      paths[i].style.strokeDashoffset = "0";
-    }
-  };
-
-  VisualManager.prototype.updateCubeTransform = function(x, y, axisAngleOrEuler, isFrozen) {
-    const half = CONFIG.size / 2;
-
-    var rotPart = "";
-    if (isFrozen) {
-      const rx = axisAngleOrEuler.rx;
-      const ry = axisAngleOrEuler.ry;
-      const rz = axisAngleOrEuler.rz;
-      rotPart = "rotateX(" + rx + "rad) rotateY(" + ry + "rad) rotateZ(" + rz + "rad)";
-    } else {
-      const ax = axisAngleOrEuler.ax;
-      const ay = axisAngleOrEuler.ay;
-      const az = axisAngleOrEuler.az;
-      const ang = axisAngleOrEuler.ang;
-      rotPart = "rotate3d(" + ax + ", " + ay + ", " + az + ", " + ang + "rad)";
-    }
-
-    const transform = "translate3d(" + (x - half) + "px, " + (y - half) + "px, 0) " + rotPart;
-
-    if (transform !== this.lastTransform) {
-      el.rig.style.transform = transform;
-      this.lastTransform = transform;
-    }
-  };
-
-  VisualManager.prototype.setTheme = function(key) {
-    const t = CONFIG.themes[key];
-    if (!t) return;
-
-    const tnow = now();
-    if (tnow - state.lastFxAt < CONFIG.fx.minIntervalMs) return;
-    state.lastFxAt = tnow;
-
-    el.root.style.setProperty("--accent", t.color);
-    this.runSweepMulti();
-
-    if (t.neon) this.enableNeonHold();
-    else this.disableNeon();
-  };
-
-  VisualManager.prototype.runSweepMulti = function() {
-    var pathsArr = Array.from(document.querySelectorAll(".sweepOuter"));
-    if (!pathsArr.length) return;
-
-    el.root.style.setProperty("--sweepDur", CONFIG.fx.durMs + "ms");
-    el.root.style.setProperty("--sweepLoops", CONFIG.fx.loops);
-
-    for (var i = 0; i < pathsArr.length; i++) {
-      var p = pathsArr[i];
-      var len = 0;
-      try { len = p.getTotalLength(); } catch (e) { len = 0; }
-      if (!len || !Number.isFinite(len)) len = 600;
-
-      const seg = Math.max(40, len * CONFIG.fx.segRatio);
-
-      p.style.strokeDasharray = seg + " " + Math.max(1, len - seg);
-      p.style.setProperty("--dashFrom", len);
-      p.style.setProperty("--dashTo", -len);
-      p.style.strokeDashoffset = len;
-
-      void p.getBoundingClientRect();
-    }
-
-    el.cube.classList.remove("sweep");
-    void el.cube.offsetWidth;
-    el.cube.classList.add("sweep");
-
-    if (state.sweepTimer) clearTimeout(state.sweepTimer);
-    state.sweepTimer = setTimeout(function() {
-      el.cube.classList.remove("sweep");
-      state.sweepTimer = null;
-    }, CONFIG.fx.sweepHoldMs);
-  };
-
-  VisualManager.prototype.enableNeonHold = function() {
-    el.body.classList.add("neon");
-    if (state.neonTimer) clearTimeout(state.neonTimer);
-    state.neonTimer = setTimeout(function() {
-      el.body.classList.remove("neon");
-      state.neonTimer = null;
-    }, CONFIG.fx.neonHoldMs);
-  };
-
-  VisualManager.prototype.disableNeon = function() {
-    el.body.classList.remove("neon");
-    if (state.neonTimer) {
-      clearTimeout(state.neonTimer);
-      state.neonTimer = null;
-    }
-  };
-
-  var DragController = function(physics) {
-    this.physics = physics;
-    this.init();
-  };
-
-  DragController.prototype.init = function() {
-    var self = this;
-    el.cube.addEventListener("mousedown", function(e) { self.onStart(e); });
-    document.addEventListener("mousemove", function(e) { self.onMove(e); });
-    document.addEventListener("mouseup", function() { self.onEnd(); });
-
-    el.cube.addEventListener("touchstart", function(e) {
-      e.preventDefault();
-      self.onStart(e.touches[0]);
-    }, { passive: false });
-
-    document.addEventListener("touchmove", function(e) {
-      if (!state.dragging.active) return;
-      e.preventDefault();
-      self.onMove(e.touches[0]);
-    }, { passive: false });
-
-    document.addEventListener("touchend", function() { self.onEnd(); });
-  };
-
-  DragController.prototype.onStart = function(e) {
-    if (!state.isFrozen) return;
-
-    state.dragging.active = true;
-    state.dragging.startX = e.clientX;
-    state.dragging.startY = e.clientY;
-
-    const pos = this.physics.getPosition();
-    state.dragging.offsetX = pos.x;
-    state.dragging.offsetY = pos.y;
-
-    el.cube.classList.add("dragging");
-  };
-
-  DragController.prototype.onMove = function(e) {
-    if (!state.dragging.active) return;
-    const dx = e.clientX - state.dragging.startX;
-    const dy = e.clientY - state.dragging.startY;
-    this.physics.setPosition(state.dragging.offsetX + dx, state.dragging.offsetY + dy);
-  };
-
-  DragController.prototype.onEnd = function() {
-    state.dragging.active = false;
-    el.cube.classList.remove("dragging");
-  };
-
-  var CameraManager = function() {
-    this.stream = null;
-    this.faceVideos = Array.from(document.querySelectorAll(".camVideo"));
-  };
-
-  CameraManager.prototype.start = function(deviceIdExact) {
-    var self = this;
-    if (this.stream) {
-      setStatus("Câmera já ativa", "info");
-      return Promise.resolve(true);
-    }
-
-    setStatus("Conectando...", "info");
-    console.log("[Camera] Tentando conectar...");
-
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      setStatus("ERRO: navegador não suporta", "error");
-      console.error("[Camera] getUserMedia não disponível");
-      return Promise.reject(new Error("getUserMedia não suportado"));
-    }
-
-    var constraints = {
-    video: {
-      width: { ideal: 1280 },
-      height: { ideal: 720 },
-      frameRate: { ideal: 30 },
-      deviceId: deviceIdExact ? { exact: deviceIdExact } : undefined
-    },
-    audio: false
-  };
-  if (!constraints.video.deviceId) delete constraints.video.deviceId;
-
-    return navigator.mediaDevices.getUserMedia(constraints)
-      .then(function(stream) {
-        console.log("[Camera] Stream obtido:", stream);
-        self.stream = stream;
-        el.camSource.srcObject = stream;
-
-        for (var i = 0; i < self.faceVideos.length; i++) {
-          self.faceVideos[i].srcObject = stream;
+    (function(){
+      'use strict';
+
+      const CONFIG = {
+        size: 160,
+        physics: {
+          gravity: 1.2,
+          restitution: 0.40,
+          friction: 0.7,
+          density: 0.006,
+          bounceForceY: 0.65,
+          bounceForceXMin: 0.25,
+          bounceForceXMax: 0.55,
+          dropVelocity: 0.2,
+          initialX: 200,
+          initialY: 180,
+          margin: { top: 80, sides: 80, bottom: 60 }
+        },
+        themes: {
+          'twitch.sub':       { color: '#ffd400', neon: false },
+          'twitch.giftsub':   { color: '#2ea7ff', neon: false },
+          'twitch.bits':      { color: '#9146ff', neon: false },
+          'twitch.follow':    { color: '#ff0000', neon: false },
+          'twitch.donate':    { color: '#00ff00', neon: false },
+
+          'youtube.member':   { color: '#f8ff3b', neon: true },
+          'youtube.membergift': { color: '#f8ff3b', neon: true },
+          'youtube.superchat':{ color: '#2ea7ff', neon: true },
+          'youtube.follow':   { color: '#ff0000', neon: true },
+          'youtube.donate':   { color: '#00ff00', neon: true }
+        },
+        fx: {
+          minIntervalMs: 110,
+          neonHoldMs: 1800,
+          sweepHoldMs: 1200,
+          loops: 3,
+          durMs: 560,
+          segRatio: 0.14
+        },
+        spin3d: {
+          damping: 0.96,
+          stopW: 0.0003,
+          stopV: 0.01,
+          dropKick: 0.06,
+          bounceKick: 0.15,
+          collisionKick: 0.08,
+          maxW: 0.30,
+          axisVariation: 0.7
+        },
+        streamerbot: {
+          enabled: true,
+          url: 'ws://127.0.0.1:8080/',
+          custom: {
+            source: 'cubo',
+            type: 'hotkey'
+          },
+          debug: false
         }
-
-        el.body.classList.add("hasCam");
-        el.camOnBtn.disabled = true;
-        el.camOffBtn.disabled = false;
-
-        setStatus("✅ CONECTADO!", "");
-        console.log("[Camera] Câmera ativa nas 6 faces!");
-        return true;
-      })
-      .catch(function(err) {
-        console.error("[Camera] Erro:", err);
-        var msg = err.name || err.message || "Erro desconhecido";
-
-        if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
-          setStatus("ERRO: Permissão negada", "error");
-        } else if (err.name === "NotFoundError" || err.name === "DevicesNotFoundError") {
-          setStatus("ERRO: Câmera não encontrada", "error");
-        } else if (err.name === "NotReadableError" || err.name === "TrackStartError") {
-          setStatus("ERRO: Câmera em uso", "error");
-        } else {
-          setStatus("ERRO: " + msg, "error");
-        }
-
-        return false;
-      });
-  };
-
-  CameraManager.prototype.stop = function() {
-    if (!this.stream) return;
-
-    console.log("[Camera] Desconectando...");
-    var tracks = this.stream.getTracks();
-    for (var i = 0; i < tracks.length; i++) {
-      tracks[i].stop();
-    }
-    this.stream = null;
-
-    el.camSource.srcObject = null;
-    for (var i = 0; i < this.faceVideos.length; i++) {
-      this.faceVideos[i].srcObject = null;
-    }
-
-    el.body.classList.remove("hasCam");
-    el.camOnBtn.disabled = false;
-    el.camOffBtn.disabled = true;
-
-    setStatus("Câmera desconectada", "");
-    console.log("[Camera] Desconectada");
-  };
-
-  // Streamer.bot bridge removido (modo hotkeys)
-
-  var CubeController = function() {
-    this.visual = new VisualManager();
-    var self = this;
-
-    this.physics = new PhysicsEngine(function(ev) { self.onCollision(ev); });
-    this.drag = new DragController(this.physics);
-    this.cam = new CameraManager();
-    // this.bridge removido
-
-  // Camera picker (listar e escolher dispositivo, ex.: OBS Virtual Camera)
-  window.__cubeController = this;
-  this.refreshCameras = function() {
-    if (!el.camSelect) return Promise.resolve(false);
-    return self.cam.listCameras().then(function(cams) {
-      var current = el.camSelect.value;
-      el.camSelect.innerHTML = '';
-      if (!cams.length) {
-        var opt = document.createElement('option');
-        opt.value = '';
-        opt.textContent = 'Nenhuma câmera encontrada';
-        el.camSelect.appendChild(opt);
-        return false;
-      }
-      cams.forEach(function(d, i) {
-        var opt = document.createElement('option');
-        opt.value = d.deviceId;
-        opt.textContent = d.label || ('Câmera ' + (i + 1));
-        el.camSelect.appendChild(opt);
-      });
-      if (current) el.camSelect.value = current;
-      return true;
-    });
-  };
-  if (el.camRefreshBtn) el.camRefreshBtn.addEventListener('click', function() { self.refreshCameras(); });
-  setTimeout(function() { self.refreshCameras(); }, 0);
-
-
-    this.bindUI();
-    this.bindHotkeys();
-    this.bindRotation();
-    this.bindResize();
-    this.startLoop();
-
-    window.cubeApi = {
-      triggerEvent: function(key) { self.triggerEvent(key); },
-      reset: function() { self.reset(); },
-      camOn: function() { return self.cam.start(); },
-      camOff: function() { self.cam.stop(); },
-    };
-  };
-
-  CubeController.prototype.onCollision = function(ev) {
-    const sp = state.spin;
-    const v = this.physics.getVelocity();
-
-    const dvx = v.x - sp.lastV[0];
-    const dvy = v.y - sp.lastV[1];
-    const impact = Math.min(1.5, Math.abs(dvx) + Math.abs(dvy));
-
-    const kick = CONFIG.spin3d.collisionKick * impact;
-    if (kick <= 0) return;
-
-    const vec = randomVariedVec3();
-    const ax = vec[0], ay = vec[1], az = vec[2];
-    const norm = Math.hypot(ax, ay, az) || 1;
-
-    sp.w[0] += (ax/norm) * kick;
-    sp.w[1] += (ay/norm) * kick;
-    sp.w[2] += (az/norm) * kick;
-
-    sp.w[0] = clamp(sp.w[0], -CONFIG.spin3d.maxW, CONFIG.spin3d.maxW);
-    sp.w[1] = clamp(sp.w[1], -CONFIG.spin3d.maxW, CONFIG.spin3d.maxW);
-    sp.w[2] = clamp(sp.w[2], -CONFIG.spin3d.maxW, CONFIG.spin3d.maxW);
-  };
-
-  CubeController.prototype.seedSpinFromSliders = function(kickMagnitude) {
-    const rx = state.rotation.x * (Math.PI / 180);
-    const ry = state.rotation.y * (Math.PI / 180);
-    const rz = state.rotation.z * (Math.PI / 180);
-    state.spin.q = qNormalize(qFromEuler(rx, ry, rz));
-
-    const vec = randomVariedVec3();
-    const ax = vec[0], ay = vec[1], az = vec[2];
-    const norm = Math.hypot(ax, ay, az) || 1;
-    const k = kickMagnitude;
-
-    state.spin.w[0] = (ax/norm) * k;
-    state.spin.w[1] = (ay/norm) * k;
-    state.spin.w[2] = (az/norm) * k;
-
-    state.spin.lastV[0] = 0;
-    state.spin.lastV[1] = 0;
-  };
-
-  CubeController.prototype.updateSpin = function() {
-    const sp = state.spin;
-    const v = this.physics.getVelocity();
-
-    sp.lastV[0] = v.x;
-    sp.lastV[1] = v.y;
-
-    const wmag = Math.hypot(sp.w[0], sp.w[1], sp.w[2]);
-    const vmag = Math.hypot(v.x, v.y);
-
-    if (wmag < CONFIG.spin3d.stopW && vmag < CONFIG.spin3d.stopV) {
-      sp.w[0] = sp.w[1] = sp.w[2] = 0;
-      return;
-    }
-
-    const _dt = (state.dt || 16);
-    const _damp = Math.pow(CONFIG.spin3d.damping, _dt / 16);
-    sp.w[0] *= _damp;
-    sp.w[1] *= _damp;
-    sp.w[2] *= _damp;
-
-    sp.w[0] = clamp(sp.w[0], -CONFIG.spin3d.maxW, CONFIG.spin3d.maxW);
-    sp.w[1] = clamp(sp.w[1], -CONFIG.spin3d.maxW, CONFIG.spin3d.maxW);
-    sp.w[2] = clamp(sp.w[2], -CONFIG.spin3d.maxW, CONFIG.spin3d.maxW);
-
-    const wx = sp.w[0], wy = sp.w[1], wz = sp.w[2];
-    const ang = Math.hypot(wx, wy, wz);
-
-    if (ang > 0.0000001) {
-      const dq = qFromAxisAngle(wx, wy, wz, ang);
-      sp.q = qNormalize(qMul(dq, sp.q));
-    }
-  };
-
-  CubeController.prototype.bindUI = function() {
-    var self = this;
-    el.ui.addEventListener("click", function(e) {
-      const btn = e.target.closest("button");
-      if (!btn) return;
-
-      const act = btn.dataset.act;
-      const evt = btn.dataset.evt;
-
-      if (evt) { self.triggerEvent(evt); return; }
-      if (!act) return;
-
-      switch (act) {
-        case "drop":
-          self.seedSpinFromSliders(CONFIG.spin3d.dropKick);
-          self.physics.drop();
-          break;
-
-        case "bounce":
-          if (!state.isFrozen) {
-            const vec = randomVariedVec3();
-            const ax = vec[0], ay = vec[1], az = vec[2];
-            const norm = Math.hypot(ax, ay, az) || 1;
-            const kick = CONFIG.spin3d.bounceKick;
-
-            state.spin.w[0] += (ax/norm) * kick;
-            state.spin.w[1] += (ay/norm) * kick;
-            state.spin.w[2] += (az/norm) * kick;
-
-            state.spin.w[0] = clamp(state.spin.w[0], -CONFIG.spin3d.maxW, CONFIG.spin3d.maxW);
-            state.spin.w[1] = clamp(state.spin.w[1], -CONFIG.spin3d.maxW, CONFIG.spin3d.maxW);
-            state.spin.w[2] = clamp(state.spin.w[2], -CONFIG.spin3d.maxW, CONFIG.spin3d.maxW);
-          }
-          self.physics.bounce();
-          break;
-
-        case "reset":
-          self.reset();
-          break;
-
-        case "applySize":
-          self.applySize();
-          break;
-
-        case "camOn":
-          self.cam.start();
-          break;
-
-        case "camOff":
-          self.cam.stop();
-          break;
-      }
-    });
-  };
-
-  CubeController.prototype.bindHotkeys = function() {
-    var self = this;
-
-    // Shift + digits mapping (e.code):
-    // Shift+1 Drop, Shift+2 Bounce, Shift+3 Reset
-    // Shift+4 Twitch Sub, Shift+5 Twitch GiftSub, Shift+6 Twitch Bits
-    // Shift+7 Donate
-    // Shift+9 YouTube Member, Shift+0 YouTube SuperChat
-
-    var shiftMap = {
-      'Digit1': function() {
-        self.seedSpinFromSliders(CONFIG.spin3d.dropKick);
-        self.physics.drop();
-      },
-      'Digit2': function() {
-        if (!state.isFrozen) {
-          const vec = randomVariedVec3();
-          const ax = vec[0], ay = vec[1], az = vec[2];
-          const norm = Math.hypot(ax, ay, az) || 1;
-          const kick = CONFIG.spin3d.bounceKick;
-          state.spin.w[0] = clamp(ax / norm * kick, -CONFIG.spin3d.maxW, CONFIG.spin3d.maxW);
-          state.spin.w[1] = clamp(ay / norm * kick, -CONFIG.spin3d.maxW, CONFIG.spin3d.maxW);
-          state.spin.w[2] = clamp(az / norm * kick, -CONFIG.spin3d.maxW, CONFIG.spin3d.maxW);
-        }
-        self.physics.bounce();
-      },
-      'Digit3': function() { self.reset(); },
-
-      'Digit4': function() { self.triggerEvent('twitch.sub'); },
-      'Digit5': function() { self.triggerEvent('twitch.giftsub'); },
-      'Digit6': function() { self.triggerEvent('twitch.bits'); },
-      'Digit7': function() { self.triggerEvent('twitch.donate'); },
-
-      'Digit9': function() { self.triggerEvent('youtube.member'); },
-      'Digit0': function() { self.triggerEvent('youtube.superchat'); }
-    };
-
-    window.addEventListener('keydown', function(e) {
-      if (e.repeat) return;
-      if (!e.shiftKey) return;
-
-      var t = e.target;
-      var tag = t && t.tagName ? t.tagName.toLowerCase() : '';
-      if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
-
-      var fn = shiftMap[e.code];
-      if (!fn) return;
-
-      e.preventDefault();
-      try { fn(); } catch (err) { console.warn('[Hotkeys] erro:', err); }
-    });
-  };
-
-
-  CubeController.prototype.bindRotation = function() {
-    function onInput(axis, valueEl) {
-      return function(e) {
-        state.rotation[axis] = parseInt(e.target.value, 10);
-        valueEl.textContent = state.rotation[axis] + "°";
       };
-    }
 
-    el.rotationX.addEventListener("input", onInput("x", el.rotXValue));
-    el.rotationY.addEventListener("input", onInput("y", el.rotYValue));
-    el.rotationZ.addEventListener("input", onInput("z", el.rotZValue));
+      const state = {
+        isFrozen: true,
+        lastCornerPosition: { x: CONFIG.physics.initialX, y: CONFIG.physics.initialY },
+        rotation: { x: 78, y: 5, z: -41 },
+        dragging: { active: false, startX: 0, startY: 0, offsetX: 0, offsetY: 0 },
+        lastFxAt: 0,
+        neonTimer: null,
+        sweepTimer: null,
+        running: true,
+        dt: 16,
+        spin: { q: [1,0,0,0], w: [0,0,0], lastV: [0,0] }
+      };
 
-    var self = this;
-    el.sizeInput.addEventListener("keypress", function(e) {
-      if (e.key === "Enter") self.applySize();
-    });
-  };
+      const el = {
+        root: document.documentElement,
+        body: document.body,
+        cube: document.getElementById('cube'),
+        rig: document.getElementById('rig'),
+        ui: document.getElementById('ui'),
 
-  CubeController.prototype.bindResize = function() {
-    var self = this;
-    var t;
-    window.addEventListener("resize", function() {
-      clearTimeout(t);
-      t = setTimeout(function() {
-        self.physics.createWalls();
-        self.visual.applySize(CONFIG.size);
-        self.visual.preparePaths();
-      }, 250);
-    });
-  };
+        sizeInput: document.getElementById('cubeSizeInput'),
+        rotationX: document.getElementById('rotationX'),
+        rotationY: document.getElementById('rotationY'),
+        rotationZ: document.getElementById('rotationZ'),
+        rotXValue: document.getElementById('rotXValue'),
+        rotYValue: document.getElementById('rotYValue'),
+        rotZValue: document.getElementById('rotZValue'),
 
-  CubeController.prototype.applySize = function() {
-    const newSize = parseInt(el.sizeInput.value, 10);
-    if (Number.isNaN(newSize) || newSize < 100 || newSize > 500) {
-      alert("Tamanho inválido! Use valores entre 100 e 500.");
-      el.sizeInput.value = CONFIG.size;
-      return;
-    }
+        camSource: document.getElementById('camSource'),
+        camStatus: document.getElementById('camStatus'),
+        camOnBtn: document.getElementById('camOnBtn'),
+        camOffBtn: document.getElementById('camOffBtn'),
+        camSelect: document.getElementById('camSelect'),
+        camRefreshBtn: document.getElementById('camRefreshBtn')
+      };
 
-    this.visual.applySize(newSize);
-    this.physics.updateSize(newSize);
-    this.physics.createWalls();
-  };
+      const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+      const now = () => performance.now();
 
-  CubeController.prototype.triggerEvent = function(key) { this.visual.setTheme(key); };
-
-  CubeController.prototype.reset = function() {
-    this.physics.resetToInitial();
-    state.spin.w[0] = state.spin.w[1] = state.spin.w[2] = 0;
-    state.spin.q = [1,0,0,0];
-  };
-
-  CubeController.prototype.startLoop = function() {
-    var self = this;
-    function loop() {
-      if (!state.running) return;
-
-      self.physics.update();
-
-      const pos = self.physics.getPosition();
-
-      if (state.isFrozen) {
-        const rx = state.rotation.x * (Math.PI / 180);
-        const ry = state.rotation.y * (Math.PI / 180);
-        const rz = state.rotation.z * (Math.PI / 180);
-
-        self.visual.updateCubeTransform(pos.x, pos.y, { rx: rx, ry: ry, rz: rz }, true);
-      } else {
-        self.updateSpin();
-        const aa = qToAxisAngle(state.spin.q);
-        self.visual.updateCubeTransform(pos.x, pos.y, aa, false);
+      function setStatus(msg, type){
+        el.camStatus.textContent = msg;
+        el.camStatus.className = '';
+        if(type === 'error') el.camStatus.classList.add('error');
+        else if(type === 'info') el.camStatus.classList.add('info');
       }
 
-      requestAnimationFrame(loop);
-    }
+      function uiSyncRotation(){
+        el.rotationX.value = String(state.rotation.x);
+        el.rotationY.value = String(state.rotation.y);
+        el.rotationZ.value = String(state.rotation.z);
+        el.rotXValue.textContent = state.rotation.x;
+        el.rotYValue.textContent = state.rotation.y;
+        el.rotZValue.textContent = state.rotation.z;
+      }
 
-    requestAnimationFrame(loop);
-  };
+      // Quaternion utils
+      function qNormalize(q){
+        const w=q[0], x=q[1], y=q[2], z=q[3];
+        const n = Math.hypot(w,x,y,z) || 1;
+        return [w/n, x/n, y/n, z/n];
+      }
+      function qMul(a,b){
+        const aw=a[0], ax=a[1], ay=a[2], az=a[3];
+        const bw=b[0], bx=b[1], by=b[2], bz=b[3];
+        return [
+          aw*bw - ax*bx - ay*by - az*bz,
+          aw*bx + ax*bw + ay*bz - az*by,
+          aw*by - ax*bz + ay*bw + az*bx,
+          aw*bz + ax*by - ay*bx + az*bw
+        ];
+      }
+      function qFromAxisAngle(ax,ay,az,ang){
+        const half = ang * 0.5;
+        const s = Math.sin(half);
+        const n = Math.hypot(ax,ay,az) || 1;
+        return [Math.cos(half), (ax/n)*s, (ay/n)*s, (az/n)*s];
+      }
+      function qFromEuler(rx,ry,rz){
+        const cx=Math.cos(rx/2), sx=Math.sin(rx/2);
+        const cy=Math.cos(ry/2), sy=Math.sin(ry/2);
+        const cz=Math.cos(rz/2), sz=Math.sin(rz/2);
+        const w = cx*cy*cz - sx*sy*sz;
+        const x = sx*cy*cz + cx*sy*sz;
+        const y = cx*sy*cz - sx*cy*sz;
+        const z = cx*cy*sz + sx*sy*cz;
+        return [w,x,y,z];
+      }
+      function qToAxisAngle(q){
+        const qq = qNormalize(q);
+        let w=qq[0], x=qq[1], y=qq[2], z=qq[3];
+        w = clamp(w, -1, 1);
+        const ang = 2 * Math.acos(w);
+        const s = Math.sqrt(1 - w*w);
+        if(s < 0.00001 || !isFinite(s)) return { ax:1, ay:0, az:0, ang:0 };
+        return { ax:x/s, ay:y/s, az:z/s, ang:ang };
+      }
+      function randomUnitVec3(){
+        const u = Math.random()*2 - 1;
+        const t = Math.random() * Math.PI * 2;
+        const r = Math.sqrt(1 - u*u);
+        return [r*Math.cos(t), u, r*Math.sin(t)];
+      }
+      function randomVariedVec3(){
+        const base = randomUnitVec3();
+        const v = CONFIG.spin3d.axisVariation;
+        return [
+          base[0] * (1 + (Math.random()-0.5)*v),
+          base[1] * (1 + (Math.random()-0.5)*v),
+          base[2] * (1 + (Math.random()-0.5)*v),
+        ];
+      }
 
-  new CubeController();
-})();
+      // Physics (Matter.js)
+      function PhysicsEngine(onCollisionKick){
+        this.engine = Matter.Engine.create();
+        this.engine.gravity.y = CONFIG.physics.gravity;
+
+        this.cubeBody = Matter.Bodies.rectangle(
+          CONFIG.physics.initialX, CONFIG.physics.initialY,
+          CONFIG.size, CONFIG.size,
+          {
+            restitution: CONFIG.physics.restitution,
+            friction: CONFIG.physics.friction,
+            density: CONFIG.physics.density,
+            isStatic: true
+          }
+        );
+
+        this.walls = [];
+        this.createWalls();
+        Matter.World.add(this.engine.world, this.cubeBody);
+
+        const self = this;
+        Matter.Events.on(this.engine, 'collisionStart', function(ev){
+          if(state.isFrozen) return;
+          if(typeof onCollisionKick === 'function') onCollisionKick(ev);
+        });
+      }
+      PhysicsEngine.prototype.createWalls = function(){
+        const top = CONFIG.physics.margin.top;
+        const sides = CONFIG.physics.margin.sides;
+        const bottom = CONFIG.physics.margin.bottom;
+
+        const thickness = 100;
+        const halfT = thickness / 2;
+
+        if(this.walls.length){
+          Matter.World.remove(this.engine.world, this.walls);
+          this.walls.length = 0;
+        }
+
+        const floorY = window.innerHeight - bottom + halfT;
+        const ceilY  = top - halfT;
+        const leftX  = sides - halfT;
+        const rightX = window.innerWidth - sides + halfT;
+
+        this.walls.push(
+          Matter.Bodies.rectangle(window.innerWidth/2, floorY, window.innerWidth*2, thickness, { isStatic:true }),
+          Matter.Bodies.rectangle(window.innerWidth/2, ceilY,  window.innerWidth*2, thickness, { isStatic:true }),
+          Matter.Bodies.rectangle(leftX,  window.innerHeight/2, thickness, window.innerHeight*2, { isStatic:true }),
+          Matter.Bodies.rectangle(rightX, window.innerHeight/2, thickness, window.innerHeight*2, { isStatic:true })
+        );
+        Matter.World.add(this.engine.world, this.walls);
+      };
+      PhysicsEngine.prototype.update = function(){
+        if(!state.isFrozen){
+          if(!this.lastT) this.lastT = now();
+          const t = now();
+          const dt = clamp(t - this.lastT, 8, 33);
+          state.dt = dt;
+          this.lastT = t;
+          Matter.Engine.update(this.engine, dt);
+        }
+      };
+      PhysicsEngine.prototype.freeze = function(){
+        Matter.Body.setStatic(this.cubeBody, true);
+        Matter.Body.setVelocity(this.cubeBody, {x:0,y:0});
+        Matter.Body.setAngularVelocity(this.cubeBody, 0);
+        state.isFrozen = true;
+      };
+      PhysicsEngine.prototype.drop = function(){
+        Matter.Body.setStatic(this.cubeBody, false);
+        state.isFrozen = false;
+        Matter.Body.setVelocity(this.cubeBody, {x:0,y:0});
+        Matter.Body.setAngle(this.cubeBody, 0);
+        Matter.Body.setAngularVelocity(this.cubeBody, CONFIG.physics.dropVelocity);
+      };
+      PhysicsEngine.prototype.bounce = function(){
+        if(state.isFrozen) return;
+        const xMin = CONFIG.physics.bounceForceXMin;
+        const xMax = CONFIG.physics.bounceForceXMax;
+        const randomXMagnitude = xMin + Math.random()*(xMax-xMin);
+        const randomXDirection = Math.random() < 0.5 ? -1 : 1;
+        const randomXForce = randomXMagnitude * randomXDirection;
+        const upForce = -CONFIG.physics.bounceForceY;
+
+        Matter.Body.applyForce(this.cubeBody, this.cubeBody.position, { x: randomXForce, y: upForce });
+
+        const current = this.cubeBody.angularVelocity;
+        const randomRot = (Math.random()-0.5)*0.8;
+        Matter.Body.setAngularVelocity(this.cubeBody, current + randomRot);
+      };
+      PhysicsEngine.prototype.resetToInitial = function(){
+        this.freeze();
+        const target = { x: CONFIG.physics.initialX, y: CONFIG.physics.initialY };
+        Matter.Body.setPosition(this.cubeBody, target);
+        Matter.Body.setVelocity(this.cubeBody, {x:0,y:0});
+        Matter.Body.setAngularVelocity(this.cubeBody, 0);
+        Matter.Body.setAngle(this.cubeBody, 0);
+
+        state.rotation.x = 78;
+        state.rotation.y = 5;
+        state.rotation.z = -41;
+        uiSyncRotation();
+      };
+      PhysicsEngine.prototype.setPosition = function(x,y){
+        if(!state.isFrozen) return;
+        Matter.Body.setPosition(this.cubeBody, {x,y});
+        state.lastCornerPosition = {x,y};
+      };
+      PhysicsEngine.prototype.updateSize = function(newSize){
+        const currentPos = this.cubeBody.position;
+        const wasStatic = this.cubeBody.isStatic;
+        Matter.World.remove(this.engine.world, this.cubeBody);
+        this.cubeBody = Matter.Bodies.rectangle(
+          currentPos.x, currentPos.y,
+          newSize, newSize,
+          {
+            restitution: CONFIG.physics.restitution,
+            friction: CONFIG.physics.friction,
+            density: CONFIG.physics.density,
+            isStatic: wasStatic
+          }
+        );
+        Matter.World.add(this.engine.world, this.cubeBody);
+      };
+      PhysicsEngine.prototype.getPosition = function(){ return this.cubeBody.position; };
+      PhysicsEngine.prototype.getVelocity = function(){ return this.cubeBody.velocity; };
+
+      // Visual
+      function VisualManager(){
+        this.lastTransform = '';
+        this.applySize(CONFIG.size);
+        this.preparePaths();
+      }
+      VisualManager.prototype.applySize = function(newSize){
+        CONFIG.size = newSize;
+        el.root.style.setProperty('--size', newSize + 'px');
+
+        const outer = parseFloat(getComputedStyle(el.root).getPropertyValue('--outer')) || 3.2;
+        const s = newSize;
+        const o2 = outer/2;
+        const d = `M ${o2} ${o2} H ${s-o2} V ${s-o2} H ${o2} Z`;
+
+        const svgs = document.querySelectorAll('.frameSvg');
+        svgs.forEach(svg => {
+          svg.setAttribute('viewBox', `0 0 ${s} ${s}`);
+          svg.setAttribute('width', String(s));
+          svg.setAttribute('height', String(s));
+          const base = svg.querySelector('.baseOuter');
+          const sweep = svg.querySelector('.sweepOuter');
+          if(base) base.setAttribute('d', d);
+          if(sweep) sweep.setAttribute('d', d);
+        });
+
+        this.preparePaths();
+      };
+      VisualManager.prototype.preparePaths = function(){
+        const paths = document.querySelectorAll('.sweepOuter');
+        paths.forEach(p => {
+          p.style.strokeDasharray = '0 1000';
+          p.style.strokeDashoffset = '0';
+        });
+      };
+      VisualManager.prototype.updateCubeTransform = function(x,y, axisAngleOrEuler, isFrozen){
+        const half = CONFIG.size / 2;
+        let rotPart = '';
+        if(isFrozen){
+          const rx = axisAngleOrEuler.rx;
+          const ry = axisAngleOrEuler.ry;
+          const rz = axisAngleOrEuler.rz;
+          rotPart = `rotateX(${rx}rad) rotateY(${ry}rad) rotateZ(${rz}rad)`;
+        }else{
+          const ax = axisAngleOrEuler.ax, ay = axisAngleOrEuler.ay, az = axisAngleOrEuler.az, ang = axisAngleOrEuler.ang;
+          rotPart = `rotate3d(${ax},${ay},${az},${ang}rad)`;
+        }
+        const transform = `translate3d(${x-half}px, ${y-half}px, 0) ${rotPart}`;
+        if(transform !== this.lastTransform){
+          el.rig.style.transform = transform;
+          this.lastTransform = transform;
+        }
+      };
+      VisualManager.prototype.setTheme = function(key){
+        const t = CONFIG.themes[key];
+        if(!t) return;
+
+        const tnow = now();
+        if(tnow - state.lastFxAt < CONFIG.fx.minIntervalMs) return;
+        state.lastFxAt = tnow;
+
+        el.root.style.setProperty('--accent', t.color);
+        this.runSweepMulti();
+        if(t.neon) this.enableNeonHold();
+        else this.disableNeon();
+      };
+      VisualManager.prototype.runSweepMulti = function(){
+        const pathsArr = Array.from(document.querySelectorAll('.sweepOuter'));
+        if(!pathsArr.length) return;
+
+        el.root.style.setProperty('--sweepDur', CONFIG.fx.durMs + 'ms');
+        el.root.style.setProperty('--sweepLoops', CONFIG.fx.loops);
+
+        pathsArr.forEach(p => {
+          let len = 0;
+          try{ len = p.getTotalLength(); }catch(e){ len = 0; }
+          if(!len || !Number.isFinite(len)) len = 600;
+
+          const seg = Math.max(40, len * CONFIG.fx.segRatio);
+          p.style.strokeDasharray = `${seg} ${Math.max(1, len-seg)}`;
+          p.style.setProperty('--dashFrom', String(len));
+          p.style.setProperty('--dashTo', String(-len));
+          p.style.strokeDashoffset = String(len);
+          void p.getBoundingClientRect();
+        });
+
+        el.cube.classList.remove('sweep');
+        void el.cube.offsetWidth;
+        el.cube.classList.add('sweep');
+
+        if(state.sweepTimer) clearTimeout(state.sweepTimer);
+        state.sweepTimer = setTimeout(() => {
+          el.cube.classList.remove('sweep');
+          state.sweepTimer = null;
+        }, CONFIG.fx.sweepHoldMs);
+      };
+      VisualManager.prototype.enableNeonHold = function(){
+        el.body.classList.add('neon');
+        if(state.neonTimer) clearTimeout(state.neonTimer);
+        state.neonTimer = setTimeout(() => {
+          el.body.classList.remove('neon');
+          state.neonTimer = null;
+        }, CONFIG.fx.neonHoldMs);
+      };
+      VisualManager.prototype.disableNeon = function(){
+        el.body.classList.remove('neon');
+        if(state.neonTimer) clearTimeout(state.neonTimer);
+        state.neonTimer = null;
+      };
+
+      // Drag
+      function DragController(physics){
+        this.physics = physics;
+        this.init();
+      }
+      DragController.prototype.init = function(){
+        const self = this;
+
+        el.cube.addEventListener('mousedown', e => self.onStart(e));
+        document.addEventListener('mousemove', e => self.onMove(e));
+        document.addEventListener('mouseup', () => self.onEnd());
+
+        el.cube.addEventListener('touchstart', e => {
+          e.preventDefault();
+          self.onStart(e.touches[0]);
+        }, { passive:false });
+
+        document.addEventListener('touchmove', e => {
+          if(!state.dragging.active) return;
+          e.preventDefault();
+          self.onMove(e.touches[0]);
+        }, { passive:false });
+
+        document.addEventListener('touchend', () => self.onEnd());
+      };
+      DragController.prototype.onStart = function(e){
+        if(!state.isFrozen) return;
+        state.dragging.active = true;
+        state.dragging.startX = e.clientX;
+        state.dragging.startY = e.clientY;
+
+        const pos = this.physics.getPosition();
+        state.dragging.offsetX = pos.x;
+        state.dragging.offsetY = pos.y;
+
+        el.cube.classList.add('dragging');
+      };
+      DragController.prototype.onMove = function(e){
+        if(!state.dragging.active) return;
+        const dx = e.clientX - state.dragging.startX;
+        const dy = e.clientY - state.dragging.startY;
+        this.physics.setPosition(state.dragging.offsetX + dx, state.dragging.offsetY + dy);
+      };
+      DragController.prototype.onEnd = function(){
+        state.dragging.active = false;
+        el.cube.classList.remove('dragging');
+      };
+
+      // Camera
+      function CameraManager(){
+        this.stream = null;
+        this.faceVideos = Array.from(document.querySelectorAll('.camVideo'));
+      }
+      CameraManager.prototype.listCameras = function(){
+        if(!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return Promise.resolve([]);
+        return navigator.mediaDevices.enumerateDevices().then(devs => devs.filter(d => d.kind === 'videoinput'));
+      };
+      CameraManager.prototype.start = function(deviceIdExact){
+        if(this.stream){
+          setStatus('Câmera já ativa.', 'info');
+          return Promise.resolve(true);
+        }
+
+        setStatus('Conectando...', 'info');
+
+        if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+          setStatus('ERRO: navegador não suporta.', 'error');
+          return Promise.reject(new Error('getUserMedia não suportado'));
+        }
+
+        const constraints = {
+          video: {
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            frameRate: { ideal: 30 },
+            deviceId: deviceIdExact ? { exact: deviceIdExact } : undefined
+          },
+          audio: false
+        };
+        if(!constraints.video.deviceId) delete constraints.video.deviceId;
+
+        return navigator.mediaDevices.getUserMedia(constraints)
+          .then(stream => {
+            this.stream = stream;
+            el.camSource.srcObject = stream;
+
+            this.faceVideos.forEach(v => v.srcObject = stream);
+
+            el.body.classList.add('hasCam');
+            el.camOnBtn.disabled = true;
+            el.camOffBtn.disabled = false;
+
+            setStatus('CONECTADO!', '');
+            return true;
+          })
+          .catch(err => {
+            let msg = err && (err.name || err.message) ? (err.name + ': ' + err.message) : 'Erro desconhecido';
+            if(err && (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError')) setStatus('ERRO: permissão negada', 'error');
+            else if(err && (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError')) setStatus('ERRO: câmera não encontrada', 'error');
+            else if(err && (err.name === 'NotReadableError' || err.name === 'TrackStartError')) setStatus('ERRO: câmera em uso', 'error');
+            else setStatus('ERRO: ' + msg, 'error');
+            return false;
+          });
+      };
+      CameraManager.prototype.stop = function(){
+        if(!this.stream) return;
+
+        const tracks = this.stream.getTracks();
+        tracks.forEach(t => t.stop());
+
+        this.stream = null;
+        el.camSource.srcObject = null;
+        this.faceVideos.forEach(v => v.srcObject = null);
+
+        el.body.classList.remove('hasCam');
+        el.camOnBtn.disabled = false;
+        el.camOffBtn.disabled = true;
+        setStatus('Câmera desconectada', '');
+      };
+
+      // Streamer.bot bridge (WebSocket -> chama os mesmos hotkeys do Shift)
+      function StreamerbotBridge(opts){
+        this.enabled = !!opts.enabled;
+        this.url = opts.url;
+        this.customSource = (opts.customSource || 'cubo').toLowerCase();
+        this.customType = (opts.customType || 'hotkey').toLowerCase();
+        this.onHotkey = typeof opts.onHotkey === 'function' ? opts.onHotkey : function(){};
+        this.debug = !!opts.debug;
+
+        this.ws = null;
+        this.reconnectAttempt = 0;
+        this.reconnectTimer = null;
+
+        if(this.enabled) this.connect();
+      }
+      StreamerbotBridge.prototype.log = function(){
+        if(!this.debug) return;
+        console.log('[SB-WS]', ...arguments);
+      };
+      StreamerbotBridge.prototype.safeJson = function(s){
+        try{ return JSON.parse(s); }catch(e){ return null; }
+      };
+      StreamerbotBridge.prototype.subscribe = function(){
+        if(!this.ws || this.ws.readyState !== 1) return;
+        const payload = {
+          request: 'Subscribe',
+          id: 'cubo-subscribe-1',
+          events: { General: ['Custom'] }
+        };
+        try{
+          this.ws.send(JSON.stringify(payload));
+          this.log('Subscribe enviado', payload);
+        }catch(e){
+          this.log('Falha ao enviar subscribe', e);
+        }
+      };
+      StreamerbotBridge.prototype.scheduleReconnect = function(){
+        if(this.reconnectTimer) return;
+        const delay = Math.min(10000, 500 * Math.pow(2, this.reconnectAttempt++));
+        this.reconnectTimer = setTimeout(() => {
+          this.reconnectTimer = null;
+          this.connect();
+        }, delay);
+        this.log('Reconectando em', delay, 'ms');
+      };
+      StreamerbotBridge.prototype.connect = function(){
+        try{
+          this.log('Conectando em', this.url);
+          this.ws = new WebSocket(this.url);
+
+          this.ws.addEventListener('open', () => {
+            this.reconnectAttempt = 0;
+            this.log('Conectado');
+            this.subscribe();
+          });
+
+          this.ws.addEventListener('message', ev => {
+            const msg = this.safeJson(ev.data);
+            if(!msg) return;
+
+            // Formato esperado: msg.event.source / msg.event.type + msg.data (Custom) [web:32]
+            const evt = msg.event || null;
+            const data = (msg.data !== undefined) ? msg.data : null;
+
+            let source = '';
+            let type = '';
+
+            if(evt && typeof evt === 'object'){
+              source = String(evt.source || '').toLowerCase();
+              type = String(evt.type || '').toLowerCase();
+            }else{
+              // fallback (caso venha flat)
+              source = String(msg.source || '').toLowerCase();
+              type = String(msg.type || '').toLowerCase();
+            }
+
+            if(source === this.customSource && type === this.customType){
+              this.onHotkey(data);
+            }
+          });
+
+          this.ws.addEventListener('close', () => {
+            this.log('Fechado');
+            this.scheduleReconnect();
+          });
+
+          this.ws.addEventListener('error', e => {
+            this.log('Erro', e);
+          });
+        }catch(e){
+          this.log('Falha ao conectar', e);
+          this.scheduleReconnect();
+        }
+      };
+
+      function parseHotkeyToCode(data){
+        if(!data) return null;
+
+        // Permite: "shift+1" / "Shift+1" / "shift + 1"
+        if(typeof data === 'string'){
+          const s = data.toLowerCase().replace(/\s+/g,'');
+          if(s.startsWith('shift+')){
+            const d = s.slice('shift+'.length);
+            if(/^[0-9]$/.test(d)) return 'Digit' + d;
+          }
+          // Permite mandar direto: "Digit1", "Digit2", ...
+          if(/^digit[0-9]$/.test(s)) return 'Digit' + s.slice(5);
+        }
+
+        // Permite payload objeto: { code: "Digit1" }
+        if(typeof data === 'object' && data.code){
+          return String(data.code);
+        }
+        return null;
+      }
+
+      // Cube Controller
+      function CubeController(){
+        this.visual = new VisualManager();
+
+        const self = this;
+        this.physics = new PhysicsEngine(ev => self.onCollision(ev));
+        this.drag = new DragController(this.physics);
+        this.cam = new CameraManager();
+
+        // Streamer.bot bridge (reativado)
+        this.bridge = new StreamerbotBridge({
+          enabled: CONFIG.streamerbot.enabled,
+          url: CONFIG.streamerbot.url,
+          customSource: CONFIG.streamerbot.custom.source,
+          customType: CONFIG.streamerbot.custom.type,
+          debug: CONFIG.streamerbot.debug,
+          onHotkey: function(data){
+            const code = parseHotkeyToCode(data);
+            if(!code) return;
+            self.runShiftCode(code);
+          }
+        });
+
+        // Camera picker
+        window.cubeController = this;
+
+        this.refreshCameras = function(){
+          if(!el.camSelect) return Promise.resolve(false);
+          return self.cam.listCameras().then(cams => {
+            const current = el.camSelect.value;
+            el.camSelect.innerHTML = '';
+
+            if(!cams.length){
+              const opt = document.createElement('option');
+              opt.value = '';
+              opt.textContent = 'Nenhuma câmera encontrada';
+              el.camSelect.appendChild(opt);
+              return false;
+            }
+
+            cams.forEach((d,i) => {
+              const opt = document.createElement('option');
+              opt.value = d.deviceId;
+              opt.textContent = d.label || ('Câmera ' + (i+1));
+              el.camSelect.appendChild(opt);
+            });
+
+            if(current) el.camSelect.value = current;
+            return true;
+          });
+        };
+
+        window.cubeApi = {
+          triggerEvent: key => self.triggerEvent(key),
+          reset: () => self.reset(),
+          camOn: () => self.cam.start(el.camSelect && el.camSelect.value ? el.camSelect.value : null),
+          camOff: () => self.cam.stop()
+        };
+
+        this.bindUI();
+        this.bindHotkeys();
+        this.bindRotation();
+        this.bindResize();
+        this.startLoop();
+
+        // primeira carga da lista
+        this.refreshCameras();
+        if(el.camRefreshBtn){
+          el.camRefreshBtn.addEventListener('click', () => {
+            self.refreshCameras();
+            setTimeout(() => self.refreshCameras(), 0);
+          });
+        }
+      }
+
+      CubeController.prototype.onCollision = function(ev){
+        const sp = state.spin;
+        const v = this.physics.getVelocity();
+        const dvx = v.x - sp.lastV[0];
+        const dvy = v.y - sp.lastV[1];
+
+        const impact = Math.min(1.5, Math.abs(dvx) + Math.abs(dvy));
+        const kick = CONFIG.spin3d.collisionKick * impact;
+        if(kick <= 0) return;
+
+        const vec = randomVariedVec3();
+        const ax=vec[0], ay=vec[1], az=vec[2];
+        const norm = Math.hypot(ax,ay,az) || 1;
+
+        sp.w[0] = clamp(sp.w[0] + (ax/norm)*kick, -CONFIG.spin3d.maxW, CONFIG.spin3d.maxW);
+        sp.w[1] = clamp(sp.w[1] + (ay/norm)*kick, -CONFIG.spin3d.maxW, CONFIG.spin3d.maxW);
+        sp.w[2] = clamp(sp.w[2] + (az/norm)*kick, -CONFIG.spin3d.maxW, CONFIG.spin3d.maxW);
+      };
+
+      CubeController.prototype.seedSpinFromSliders = function(kickMagnitude){
+        const rx = state.rotation.x * Math.PI / 180;
+        const ry = state.rotation.y * Math.PI / 180;
+        const rz = state.rotation.z * Math.PI / 180;
+
+        state.spin.q = qNormalize(qFromEuler(rx,ry,rz));
+
+        const vec = randomVariedVec3();
+        const ax=vec[0], ay=vec[1], az=vec[2];
+        const norm = Math.hypot(ax,ay,az) || 1;
+        const k = kickMagnitude;
+
+        state.spin.w[0] = (ax/norm) * k;
+        state.spin.w[1] = (ay/norm) * k;
+        state.spin.w[2] = (az/norm) * k;
+        state.spin.lastV = [0,0];
+      };
+
+      CubeController.prototype.updateSpin = function(){
+        const sp = state.spin;
+        const v = this.physics.getVelocity();
+        sp.lastV[0] = v.x;
+        sp.lastV[1] = v.y;
+
+        const wmag = Math.hypot(sp.w[0], sp.w[1], sp.w[2]);
+        const vmag = Math.hypot(v.x, v.y);
+
+        if(wmag < CONFIG.spin3d.stopW && vmag < CONFIG.spin3d.stopV){
+          sp.w[0]=sp.w[1]=sp.w[2]=0;
+          return;
+        }
+
+        const dt = state.dt || 16;
+        const damp = Math.pow(CONFIG.spin3d.damping, dt / 16);
+        sp.w[0] *= damp; sp.w[1] *= damp; sp.w[2] *= damp;
+
+        sp.w[0] = clamp(sp.w[0], -CONFIG.spin3d.maxW, CONFIG.spin3d.maxW);
+        sp.w[1] = clamp(sp.w[1], -CONFIG.spin3d.maxW, CONFIG.spin3d.maxW);
+        sp.w[2] = clamp(sp.w[2], -CONFIG.spin3d.maxW, CONFIG.spin3d.maxW);
+
+        const wx=sp.w[0], wy=sp.w[1], wz=sp.w[2];
+        const ang = Math.hypot(wx,wy,wz);
+
+        if(ang > 0.0000001){
+          const dq = qFromAxisAngle(wx,wy,wz, ang);
+          sp.q = qNormalize(qMul(dq, sp.q));
+        }
+      };
+
+      CubeController.prototype.bindUI = function(){
+        const self = this;
+
+        el.ui.addEventListener('click', function(e){
+          const btn = e.target.closest('button');
+          if(!btn) return;
+
+          const act = btn.dataset.act;
+          const evt = btn.dataset.evt;
+
+          if(evt){
+            self.triggerEvent(evt);
+            return;
+          }
+          if(!act) return;
+
+          switch(act){
+            case 'drop':
+              self.seedSpinFromSliders(CONFIG.spin3d.dropKick);
+              self.physics.drop();
+              break;
+
+            case 'bounce':
+              if(!state.isFrozen){
+                const vec = randomVariedVec3();
+                const ax=vec[0], ay=vec[1], az=vec[2];
+                const norm = Math.hypot(ax,ay,az) || 1;
+                const kick = CONFIG.spin3d.bounceKick;
+
+                state.spin.w[0] = clamp(state.spin.w[0] + (ax/norm)*kick, -CONFIG.spin3d.maxW, CONFIG.spin3d.maxW);
+                state.spin.w[1] = clamp(state.spin.w[1] + (ay/norm)*kick, -CONFIG.spin3d.maxW, CONFIG.spin3d.maxW);
+                state.spin.w[2] = clamp(state.spin.w[2] + (az/norm)*kick, -CONFIG.spin3d.maxW, CONFIG.spin3d.maxW);
+
+                self.physics.bounce();
+              }
+              break;
+
+            case 'reset':
+              self.reset();
+              break;
+
+            case 'applySize':
+              self.applySize();
+              break;
+
+            case 'camOn':
+              self.cam.start(el.camSelect && el.camSelect.value ? el.camSelect.value : null);
+              break;
+
+            case 'camOff':
+              self.cam.stop();
+              break;
+          }
+        });
+      };
+
+      CubeController.prototype.bindHotkeys = function(){
+        const self = this;
+
+        // Shift digits mapping:
+        // Shift+1 Drop, Shift+2 Bounce, Shift+3 Reset
+        // Shift+4 Twitch Sub, Shift+5 Twitch GiftSub, Shift+6 Twitch Bits
+        // Shift+7 Donate, Shift+9 YouTube Member, Shift+0 YouTube SuperChat
+        const shiftMap = {
+          'Digit1': () => { self.seedSpinFromSliders(CONFIG.spin3d.dropKick); self.physics.drop(); },
+          'Digit2': () => {
+            if(!state.isFrozen){
+              const vec = randomVariedVec3();
+              const ax=vec[0], ay=vec[1], az=vec[2];
+              const norm = Math.hypot(ax,ay,az) || 1;
+              const kick = CONFIG.spin3d.bounceKick;
+              state.spin.w[0] = clamp(state.spin.w[0] + (ax/norm)*kick, -CONFIG.spin3d.maxW, CONFIG.spin3d.maxW);
+              state.spin.w[1] = clamp(state.spin.w[1] + (ay/norm)*kick, -CONFIG.spin3d.maxW, CONFIG.spin3d.maxW);
+              state.spin.w[2] = clamp(state.spin.w[2] + (az/norm)*kick, -CONFIG.spin3d.maxW, CONFIG.spin3d.maxW);
+              self.physics.bounce();
+            }
+          },
+          'Digit3': () => self.reset(),
+          'Digit4': () => self.triggerEvent('twitch.sub'),
+          'Digit5': () => self.triggerEvent('twitch.giftsub'),
+          'Digit6': () => self.triggerEvent('twitch.bits'),
+          'Digit7': () => self.triggerEvent('twitch.donate'),
+          'Digit9': () => self.triggerEvent('youtube.member'),
+          'Digit0': () => self.triggerEvent('youtube.superchat')
+        };
+
+        // expõe para a ponte do Streamer.bot chamar sem precisar “shiftKey”
+        this.runShiftCode = function(code){
+          const fn = shiftMap[code];
+          if(!fn) return;
+          try{ fn(); }catch(err){ console.warn('Hotkeys erro', err); }
+        };
+
+        window.addEventListener('keydown', function(e){
+          if(e.repeat) return;
+          if(!e.shiftKey) return;
+
+          const t = e.target;
+          const tag = t && t.tagName ? t.tagName.toLowerCase() : '';
+          if(tag === 'input' || tag === 'textarea' || tag === 'select') return;
+
+          const fn = shiftMap[e.code];
+          if(!fn) return;
+
+          e.preventDefault();
+          try{ fn(); }catch(err){ console.warn('Hotkeys erro', err); }
+        });
+      };
+
+      CubeController.prototype.bindRotation = function(){
+        function onInput(axis, valueEl){
+          return function(e){
+            state.rotation[axis] = parseInt(e.target.value, 10);
+            valueEl.textContent = state.rotation[axis];
+          };
+        }
+        el.rotationX.addEventListener('input', onInput('x', el.rotXValue));
+        el.rotationY.addEventListener('input', onInput('y', el.rotYValue));
+        el.rotationZ.addEventListener('input', onInput('z', el.rotZValue));
+
+        const self = this;
+        el.sizeInput.addEventListener('keypress', function(e){
+          if(e.key === 'Enter') self.applySize();
+        });
+      };
+
+      CubeController.prototype.bindResize = function(){
+        const self = this;
+        let t = null;
+        window.addEventListener('resize', function(){
+          clearTimeout(t);
+          t = setTimeout(function(){
+            self.physics.createWalls();
+            self.visual.applySize(CONFIG.size);
+            self.visual.preparePaths();
+          }, 250);
+        });
+      };
+
+      CubeController.prototype.applySize = function(){
+        const newSize = parseInt(el.sizeInput.value, 10);
+        if(Number.isNaN(newSize) || newSize < 100 || newSize > 500){
+          alert('Tamanho inválido! Use valores entre 100 e 500.');
+          el.sizeInput.value = CONFIG.size;
+          return;
+        }
+        this.visual.applySize(newSize);
+        this.physics.updateSize(newSize);
+        this.physics.createWalls();
+      };
+
+      CubeController.prototype.triggerEvent = function(key){
+        this.visual.setTheme(key);
+      };
+
+      CubeController.prototype.reset = function(){
+        this.physics.resetToInitial();
+        state.spin.w[0]=state.spin.w[1]=state.spin.w[2]=0;
+        state.spin.q = [1,0,0,0];
+      };
+
+      CubeController.prototype.startLoop = function(){
+        const self = this;
+        function loop(){
+          if(!state.running) return;
+
+          self.physics.update();
+          const pos = self.physics.getPosition();
+
+          if(state.isFrozen){
+            const rx = state.rotation.x * Math.PI / 180;
+            const ry = state.rotation.y * Math.PI / 180;
+            const rz = state.rotation.z * Math.PI / 180;
+            self.visual.updateCubeTransform(pos.x, pos.y, { rx, ry, rz }, true);
+          }else{
+            self.updateSpin();
+            const aa = qToAxisAngle(state.spin.q);
+            self.visual.updateCubeTransform(pos.x, pos.y, aa, false);
+          }
+
+          requestAnimationFrame(loop);
+        }
+        requestAnimationFrame(loop);
+      };
+
+      // init
+      uiSyncRotation();
+      setStatus('Pronto', 'info');
+      new CubeController();
+    })();
   </script>
 </body>
 </html>
